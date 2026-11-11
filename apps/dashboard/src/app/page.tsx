@@ -9,12 +9,12 @@ export const dynamic = "force-dynamic";
 const phases = [
   { name: "Foundation", detail: "Monorepo, shared validation, Postgres schema and RLS", done: true },
   { name: "Core platform", detail: "Sign-in, organizations, workspaces, websites, chatbots, access control", done: true },
-  { name: "AI engine", detail: "Provider adapters, LangChain.js, streaming conversations", done: false },
-  { name: "RAG engine", detail: "Ingestion, embeddings, hybrid retrieval, citations", done: false },
-  { name: "Universal embedding", detail: "Embed SDK, Web Component, iframe, origin checks", done: false },
-  { name: "Voice", detail: "STT/TTS pipeline and realtime voice", done: false },
-  { name: "Admin & analytics", detail: "Dashboard screens, embed management, usage", done: false },
-  { name: "Production readiness", detail: "Security review, browser tests, deployment", done: false },
+  { name: "AI engine", detail: "Provider adapters, LangChain.js, streaming conversations", done: true },
+  { name: "RAG engine", detail: "Ingestion, embeddings, hybrid retrieval, citations", done: true },
+  { name: "Universal embedding", detail: "Embed SDK, Web Component, iframe, origin checks", done: true },
+  { name: "Voice", detail: "STT/TTS pipeline and realtime voice", done: true },
+  { name: "Admin & analytics", detail: "Dashboard screens, embed management, usage", done: true },
+  { name: "Production readiness", detail: "Security review, browser tests, deployment", done: true },
 ];
 
 export default async function HomePage() {

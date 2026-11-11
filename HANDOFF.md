@@ -2,6 +2,20 @@
 
 State as of 2026-11-11. Read this first, then `README.md`, `DEPLOYMENT.md` and `SECURITY.md`.
 
+## Update (2026-11-11, after deployment)
+
+This section supersedes older statements below where they differ.
+
+- **Deployed:** production is Cloudflare Pages, https://ai-chatbot-9wg.pages.dev (project `ai-chatbot`). The Worker `ai-chatbot` runs the 10-minute maintenance cron from the same build. Both reach Supabase through Hyperdrive `ai-chatbot-db`. See "Cloudflare Pages" in `DEPLOYMENT.md`.
+- **Checked on production:** `/api/health` (database ok), the home, sign-in, sign-up and docs pages, `embed.js`, the OpenAPI document, the widget config endpoint (a transactional query through Hyperdrive) and the maintenance endpoint on both deployments.
+- **Tests:** the full suite, including the 40 database integration tests that used to be skipped, passes (126 tests) on a throwaway Neon branch, which was deleted afterwards. `packages/core/vitest.config.ts` now runs test files one at a time, because maintenance purges every organization and raced the retention test.
+- **Landing page:** the build-progress list now shows all eight phases as built.
+- **Still open, needs the owner:**
+  1. Supabase Auth: set the Site URL to the Pages URL and allow `https://ai-chatbot-9wg.pages.dev/auth/callback`, then run sign-up end to end.
+  2. Add at least one AI provider key (`wrangler pages secret put` and `wrangler secret put`). Until then chat, embeddings and voice cannot answer in production, and none of them has been tried against a real provider.
+  3. Custom SMTP in Supabase before real users sign up.
+- **Still open, engineering:** server-side realtime voice connection (`SECURITY.md`, finding 2); owner guard before any member-management screen.
+
 ## Where things stand
 
 - **Repo:** `C:\Users\PC2\AndroidStudioProjects\PROJECTS\embeddable_chatbot`, git branch `main`, last commit `33d195d` (Phase 8).
