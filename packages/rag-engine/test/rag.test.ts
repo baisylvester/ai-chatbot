@@ -187,3 +187,36 @@ describe("embeddings", () => {
     expect(() => createEmbedder({ EMBEDDING_PROVIDER: "openai" })).toThrow(/OPENAI_API_KEY/);
   });
 });
+
+describe("zip bomb protection", () => {
+  /** Builds a minimal ZIP central directory with the given declared sizes (no real data needed). */
+  function zipWithDeclaredSizes(entries: { csize: number; usize: number }[]): Uint8Array {
+    const name = "word/document.xml";
+    const cd: number[] = [];
+    for (const e of entries) {
+      const h = new DataView(new ArrayBuffer(46));
+      h.setUint32(0, 0x02014b50, true);
+      h.setUint32(20, e.csize, true);
+      h.setUint32(24, e.usize, true);
+      h.setUint16(28, name.length, true);
+      cd.push(...new Uint8Array(h.buffer), ...new TextEncoder().encode(name));
+    }
+    const local = [0x50, 0x4b, 0x03, 0x04, ...new Array(26).fill(0)];
+    const eocd = new DataView(new ArrayBuffer(22));
+    eocd.setUint32(0, 0x06054b50, true);
+    eocd.setUint16(8, entries.length, true);
+    eocd.setUint16(10, entries.length, true);
+    eocd.setUint32(12, cd.length, true);
+    eocd.setUint32(16, local.length, true);
+    return new Uint8Array([...local, ...cd, ...new Uint8Array(eocd.buffer)]);
+  }
+
+  it("rejects archives that declare an unsafe uncompressed size or ratio", async () => {
+    const { assertSafeZip } = await import("../src/index.ts");
+    expect(() => assertSafeZip(zipWithDeclaredSizes([{ csize: 1_000_000, usize: 500_000_000 }]))).toThrow(/unsafe size/);
+    expect(() => assertSafeZip(zipWithDeclaredSizes([{ csize: 1000, usize: 1_000_000 }]))).toThrow(/unsafe size/);
+    expect(() => assertSafeZip(zipWithDeclaredSizes([{ csize: 0xffffffff, usize: 0xffffffff }]))).toThrow(/too large/);
+    expect(() => assertSafeZip(zipWithDeclaredSizes([{ csize: 5000, usize: 20000 }]))).not.toThrow();
+    await expect(extractText(zipWithDeclaredSizes([{ csize: 1000, usize: 900_000_000 }]), "docx")).rejects.toThrow(/unsafe size/);
+  });
+});

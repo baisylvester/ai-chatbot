@@ -9,7 +9,7 @@ export function getPool(): pg.Pool {
   if (!globalForDb.chatbotPool) {
     const url = process.env.DATABASE_URL;
     if (!url) throw new Error("DATABASE_URL is not set");
-    globalForDb.chatbotPool = createPool(url, 5);
+    globalForDb.chatbotPool = createPool(url, Number(process.env.DATABASE_POOL_MAX) || 10);
   }
   return globalForDb.chatbotPool;
 }

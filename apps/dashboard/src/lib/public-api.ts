@@ -71,3 +71,37 @@ export const sseHeaders = {
   "Cache-Control": "no-cache, no-transform",
   "X-Accel-Buffering": "no",
 };
+
+/**
+ * Reads a JSON body with a hard size cap, before any parsing: rejects on Content-Length and also
+ * stops reading a body that turns out larger than declared (or has no declared length).
+ * Returns null for oversized or invalid JSON (callers answer 400/413).
+ */
+export async function readJson(request: Request, maxBytes: number): Promise<unknown | null> {
+  const declared = Number(request.headers.get("content-length") ?? "0");
+  if (declared > maxBytes || !request.body) return null;
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      return null;
+    }
+    chunks.push(value);
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch {
+    return null;
+  }
+}
+
+/** True when the request declares a body larger than `maxBytes`, or declares none at all. */
+export function bodyTooLarge(request: Request, maxBytes: number): boolean {
+  const declared = request.headers.get("content-length");
+  return declared === null || Number(declared) > maxBytes;
+}

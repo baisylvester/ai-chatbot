@@ -18,3 +18,6 @@ knowledge_sources/*
 next-env.d.ts
 # Built widget (packages/embed-sdk build output)
 apps/dashboard/public/embed.js
+# Playwright output
+tests/e2e/test-results/
+tests/e2e/playwright-report/

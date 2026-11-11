@@ -8,6 +8,7 @@ import { logRefusal } from "@/lib/widget-events";
 import { withTrustedContext } from "@chatbot/database";
 import { getPool } from "@/lib/db";
 import { apiError, clientIp, corsHeaders, embedSecret, errorResponse, platformOrigins, preflight, requestOrigin } from "@/lib/public-api";
+import { readJson } from "@/lib/public-api";
 import { rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
@@ -20,10 +21,10 @@ const bodySchema = z.object({ chatbotId: z.string().max(80), visitorId: z.string
 export async function POST(request: Request) {
   const origin = requestOrigin(request);
   const headers = corsHeaders(origin);
-  const limited = rateLimit(`embed-session:${clientIp(request)}`, 10, 60_000);
+  const limited = await rateLimit(`embed-session:${clientIp(request)}`, 10, 60_000);
   if (!limited.ok) return apiError(429, "rate_limited", "Too many new conversations. Try again shortly.", { ...headers, "Retry-After": String(limited.retryAfterSec) });
 
-  const body = bodySchema.safeParse(await request.json().catch(() => null));
+  const body = bodySchema.safeParse(await readJson(request, 4_096));
   if (!body.success) return apiError(400, "invalid_request", "chatbotId is required", headers);
   try {
     const result = await withTrustedContext(getPool(), async (db) => {

@@ -289,18 +289,32 @@ export async function getConversation(db: DbClient, sessionId: string): Promise<
   return { ...session, messages };
 }
 
+/** Proof that a user may delete one conversation; only `authorizeConversationDelete` creates it. */
+export interface ConversationDeleteGrant {
+  readonly sessionId: string;
+  readonly organizationId: string;
+  readonly actorId: string;
+  readonly kind: "conversation-delete";
+}
+
 /**
- * Deletes one conversation and its messages (e.g. a visitor's deletion request). Owners/admins only.
- * `userDb` proves the role; the delete itself is trusted because conversations have no RLS delete policy.
+ * Step 1 (RLS client): checks the caller is an owner/admin of the conversation's organization.
+ * Run it in its own transaction, then call `deleteConversation` in a separate trusted one: never hold
+ * a user and a trusted connection at the same time (that can exhaust the pool under load).
  */
-export async function deleteConversation(userDb: DbClient, trustedDb: DbClient, sessionId: string, actorId: string): Promise<void> {
+export async function authorizeConversationDelete(userDb: DbClient, sessionId: string, actorId: string): Promise<ConversationDeleteGrant> {
   const convo = await getConversation(userDb, sessionId);
   const org = await getOrganization(userDb, convo.organization_id);
   if (org.role !== "owner" && org.role !== "admin") throw new DomainError("forbidden", "Only owners and admins can delete conversations");
-  await trustedDb.query("delete from chat_sessions where id = $1 and organization_id = $2", [convo.id, org.id]);
+  return { sessionId: convo.id, organizationId: org.id, actorId, kind: "conversation-delete" };
+}
+
+/** Step 2 (trusted client): deletes the conversation and its messages, and audit-logs it. */
+export async function deleteConversation(trustedDb: DbClient, grant: ConversationDeleteGrant): Promise<void> {
+  await trustedDb.query("delete from chat_sessions where id = $1 and organization_id = $2", [grant.sessionId, grant.organizationId]);
   await trustedDb.query(
     "insert into audit_logs (organization_id, actor_id, action, target_type, target_id) values ($1, $2, 'conversation.delete', 'chat_session', $3)",
-    [org.id, actorId, convo.id],
+    [grant.organizationId, grant.actorId, grant.sessionId],
   );
 }
 

@@ -15,7 +15,7 @@ export const OPTIONS = preflight;
 export async function GET(request: Request) {
   const origin = requestOrigin(request);
   const headers = corsHeaders(origin);
-  if (!rateLimit(`embed-config:${clientIp(request)}`, 60, 60_000).ok) return apiError(429, "rate_limited", "Too many requests", headers);
+  if (!(await rateLimit(`embed-config:${clientIp(request)}`, 60, 60_000)).ok) return apiError(429, "rate_limited", "Too many requests", headers);
   const chatbotId = new URL(request.url).searchParams.get("chatbotId") ?? "";
   try {
     const bot = await withTrustedContext(getPool(), (db) => resolveForOrigin(db, chatbotId, origin, platformOrigins(request)));

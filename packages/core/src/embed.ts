@@ -254,20 +254,34 @@ export async function listApiKeys(db: DbClient, orgId: string): Promise<ApiKeySu
   ).rows;
 }
 
+/** Proof that a user may create API keys for an organization; only `authorizeApiKeyCreate` creates it. */
+export interface ApiKeyCreateGrant {
+  readonly organizationId: string;
+  readonly name: string;
+  readonly createdBy: string;
+  readonly kind: "api-key-create";
+}
+
 /**
- * Creates a private API key. The caller passes the user's RLS client to prove they are an owner/admin
- * and a trusted client for the insert (there is no RLS insert policy, so clients can't mint keys).
- * The plaintext is returned once and never stored.
+ * Step 1 (RLS client): checks the caller is an owner/admin and validates the name. Run it in its
+ * own transaction, then `createApiKey` in a separate trusted one (never nest the two connections).
  */
-export async function createApiKey(
-  userDb: DbClient,
-  trustedDb: DbClient,
-  input: { organizationId: string; name: string; createdBy: string },
-): Promise<{ id: string; plaintext: string; prefix: string }> {
+export async function authorizeApiKeyCreate(userDb: DbClient, input: { organizationId: string; name: string; createdBy: string }): Promise<ApiKeyCreateGrant> {
   const org = await getOrganization(userDb, input.organizationId);
   if (org.role !== "owner" && org.role !== "admin") throw new DomainError("forbidden", "Only owners and admins can create API keys");
   const name = input.name.trim();
   if (!name || name.length > 100) throw new DomainError("invalid", "Enter a name of up to 100 characters");
+  return { organizationId: org.id, name, createdBy: input.createdBy, kind: "api-key-create" };
+}
+
+/**
+ * Step 2 (trusted client; there is no RLS insert policy, so clients can't mint keys).
+ * The plaintext is returned once and never stored.
+ */
+export async function createApiKey(trustedDb: DbClient, grant: ApiKeyCreateGrant): Promise<{ id: string; plaintext: string; prefix: string }> {
+  const org = { id: grant.organizationId };
+  const name = grant.name;
+  const input = { createdBy: grant.createdBy };
   const key = generateApiKey();
   try {
     const row = (

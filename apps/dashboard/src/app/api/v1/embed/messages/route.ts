@@ -9,6 +9,7 @@ import { withTrustedContext } from "@chatbot/database";
 import { getPool } from "@/lib/db";
 import { retrieverFor } from "@/lib/knowledge";
 import { apiError, clientIp, corsHeaders, embedSecret, errorResponse, platformOrigins, preflight, requestOrigin, sse, sseHeaders } from "@/lib/public-api";
+import { readJson } from "@/lib/public-api";
 import { rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
@@ -23,9 +24,9 @@ export async function POST(request: Request) {
   const headers = corsHeaders(origin);
   const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
   if (!token) return apiError(401, "invalid_token", "Missing session token", headers);
-  if (!rateLimit(`embed-msg-ip:${clientIp(request)}`, 60, 60_000).ok) return apiError(429, "rate_limited", "Too many messages. Wait a moment.", headers);
+  if (!(await rateLimit(`embed-msg-ip:${clientIp(request)}`, 60, 60_000)).ok) return apiError(429, "rate_limited", "Too many messages. Wait a moment.", headers);
 
-  const body = bodySchema.safeParse(await request.json().catch(() => null));
+  const body = bodySchema.safeParse(await readJson(request, 32_768));
   if (!body.success) return apiError(400, "invalid_request", body.error.issues[0]?.message ?? "Invalid request", headers);
 
   const pool = getPool();
@@ -35,7 +36,7 @@ export async function POST(request: Request) {
   } catch (err) {
     return errorResponse(err, headers);
   }
-  if (!rateLimit(`embed-msg-session:${auth.sessionId}`, 20, 60_000).ok) {
+  if (!(await rateLimit(`embed-msg-session:${auth.sessionId}`, 20, 60_000)).ok) {
     return apiError(429, "rate_limited", "Too many messages. Wait a moment.", headers);
   }
 

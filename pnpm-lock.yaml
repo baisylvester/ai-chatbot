@@ -40,10 +40,10 @@ importers:
         version: link:../../packages/voice-engine
       '@neon/auth':
         specifier: 0.8.0
-        version: 0.8.0(kysely@0.29.8)(nanostores@1.5.5)(next@16.4.3(@types/node@24.19.2)(react-dom@19.1.10(react@19.1.10))(react@19.1.10))(pg@8.23.1)(react-dom@19.1.10(react@19.1.10))(react@19.1.10)(vitest@4.1.12(@types/node@24.19.2)(vite@8.3.7(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)))
+        version: 0.8.0(kysely@0.29.8)(nanostores@1.5.5)(next@16.4.3(@playwright/test@1.64.1)(@types/node@24.19.2)(react-dom@19.1.10(react@19.1.10))(react@19.1.10))(pg@8.23.1)(react-dom@19.1.10(react@19.1.10))(react@19.1.10)(vitest@4.1.12(@types/node@24.19.2)(vite@8.3.7(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)))
       next:
         specifier: 16.4.3
-        version: 16.4.3(@types/node@24.19.2)(react-dom@19.1.10(react@19.1.10))(react@19.1.10)
+        version: 16.4.3(@playwright/test@1.64.1)(@types/node@24.19.2)(react-dom@19.1.10(react@19.1.10))(react@19.1.10)
       pg:
         specifier: 8.23.1
         version: 8.23.1
@@ -290,6 +290,15 @@ importers:
       vitest:
         specifier: 4.1.12
         version: 4.1.12(@types/node@24.19.2)(vite@8.3.7(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0))
+
+  tests/e2e:
+    devDependencies:
+      '@chatbot/embed-sdk':
+        specifier: workspace:*
+        version: link:../../packages/embed-sdk
+      '@playwright/test':
+        specifier: 1.64.1
+        version: 1.64.1
 
 packages:
 
@@ -854,6 +863,11 @@ packages:
 
   '@oxc-project/types@0.156.0':
     resolution: {integrity: sha512-1Duyg48TdJNdyhEB8Xn1L36bT9Pv6GUtlKjHxOys8xkaF/rQq3XJE+bAurSK/AgIz5mGFsb77cn9Pb20+WCScw==}
+
+  '@playwright/test@1.64.1':
+    resolution: {integrity: sha512-IaYGml/nSOiZWROfPtuIL7neuu9qDOZ3TNvNljUIrhDMxiGTgPjzj/g9p9RxpS2tSepPDRY+UwAaEeiKtUvIAg==}
+    engines: {node: '>=20'}
+    hasBin: true
 
   '@rolldown/binding-android-arm-eabi@1.2.18':
     resolution: {integrity: sha512-ubTG+4KlidvioxjOFdsdEa2F6JVGZb8m2ByJUqQ7fYzUeT1cEn194POcsQ10PKH4p//q0YQn4SB3YpSuzcA1Yg==}
@@ -1693,6 +1707,16 @@ packages:
     resolution: {integrity: sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA==}
     engines: {node: '>=12'}
 
+  playwright-core@1.64.1:
+    resolution: {integrity: sha512-BC4s8y6SEVA6Q1rSxZTto8hI1KUI3xXlHGZgvGqP4IqPdI/a6FX9H29IDNz7vKo9l21b6LfYosScPL6M3xxyDQ==}
+    engines: {node: '>=20'}
+    hasBin: true
+
+  playwright@1.64.1:
+    resolution: {integrity: sha512-HCrVhHr5QQuwYoswEUGTb7gGp522yflbv/ST8nF4sFWGuLjQCt17Q/EubpGGSNKYn1tsTCPZxqHhHCfVURu7UA==}
+    engines: {node: '>=20'}
+    hasBin: true
+
   postcss@8.5.23:
     resolution: {integrity: sha512-g50586zr4bZmwFiTlflMu8E0bDTb5I5gertgwAKmsdUlTQIhZtunzUlD1WSzwcVWPoAVpsrA6vlfCD7oXvRwgg==}
     engines: {node: ^10 || ^12 || >=14}
@@ -2016,12 +2040,12 @@ snapshots:
       '@better-auth/core': 1.7.6(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-call@1.4.0(zod@4.6.7))(jose@6.2.5)(kysely@0.29.8)(nanostores@1.5.5)
       '@better-auth/utils': 0.4.2
 
-  '@better-auth/oauth-provider@1.7.6(@better-auth/core@1.7.6(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-call@1.4.0(zod@4.6.7))(jose@6.2.5)(kysely@0.29.8)(nanostores@1.5.5))(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-auth@1.7.6(next@16.4.3(@types/node@24.19.2)(react-dom@19.1.10(react@19.1.10))(react@19.1.10))(pg@8.23.1)(react-dom@19.1.10(react@19.1.10))(react@19.1.10)(vitest@4.1.12(@types/node@24.19.2)(vite@8.3.7(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0))))(better-call@1.4.0(zod@4.6.7))':
+  '@better-auth/oauth-provider@1.7.6(@better-auth/core@1.7.6(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-call@1.4.0(zod@4.6.7))(jose@6.2.5)(kysely@0.29.8)(nanostores@1.5.5))(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-auth@1.7.6(next@16.4.3(@playwright/test@1.64.1)(@types/node@24.19.2)(react-dom@19.1.10(react@19.1.10))(react@19.1.10))(pg@8.23.1)(react-dom@19.1.10(react@19.1.10))(react@19.1.10)(vitest@4.1.12(@types/node@24.19.2)(vite@8.3.7(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0))))(better-call@1.4.0(zod@4.6.7))':
     dependencies:
       '@better-auth/core': 1.7.6(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-call@1.4.0(zod@4.6.7))(jose@6.2.5)(kysely@0.29.8)(nanostores@1.5.5)
       '@better-auth/utils': 0.4.2
       '@better-fetch/fetch': 1.3.2
-      better-auth: 1.7.6(next@16.4.3(@types/node@24.19.2)(react-dom@19.1.10(react@19.1.10))(react@19.1.10))(pg@8.23.1)(react-dom@19.1.10(react@19.1.10))(react@19.1.10)(vitest@4.1.12(@types/node@24.19.2)(vite@8.3.7(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)))
+      better-auth: 1.7.6(next@16.4.3(@playwright/test@1.64.1)(@types/node@24.19.2)(react-dom@19.1.10(react@19.1.10))(react@19.1.10))(pg@8.23.1)(react-dom@19.1.10(react@19.1.10))(react@19.1.10)(vitest@4.1.12(@types/node@24.19.2)(vite@8.3.7(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)))
       better-call: 1.4.0(zod@4.6.7)
       jose: 6.2.5
       zod: 4.6.7
@@ -2306,19 +2330,19 @@ snapshots:
       '@langchain/core': 1.3.0(openai@7.54.0(zod@4.6.7))
       js-tiktoken: 1.0.21
 
-  '@neon/auth@0.8.0(kysely@0.29.8)(nanostores@1.5.5)(next@16.4.3(@types/node@24.19.2)(react-dom@19.1.10(react@19.1.10))(react@19.1.10))(pg@8.23.1)(react-dom@19.1.10(react@19.1.10))(react@19.1.10)(vitest@4.1.12(@types/node@24.19.2)(vite@8.3.7(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)))':
+  '@neon/auth@0.8.0(kysely@0.29.8)(nanostores@1.5.5)(next@16.4.3(@playwright/test@1.64.1)(@types/node@24.19.2)(react-dom@19.1.10(react@19.1.10))(react@19.1.10))(pg@8.23.1)(react-dom@19.1.10(react@19.1.10))(react@19.1.10)(vitest@4.1.12(@types/node@24.19.2)(vite@8.3.7(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)))':
     dependencies:
       '@better-auth/core': 1.7.6(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-call@1.4.0(zod@4.6.7))(jose@6.2.5)(kysely@0.29.8)(nanostores@1.5.5)
-      '@better-auth/oauth-provider': 1.7.6(@better-auth/core@1.7.6(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-call@1.4.0(zod@4.6.7))(jose@6.2.5)(kysely@0.29.8)(nanostores@1.5.5))(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-auth@1.7.6(next@16.4.3(@types/node@24.19.2)(react-dom@19.1.10(react@19.1.10))(react@19.1.10))(pg@8.23.1)(react-dom@19.1.10(react@19.1.10))(react@19.1.10)(vitest@4.1.12(@types/node@24.19.2)(vite@8.3.7(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0))))(better-call@1.4.0(zod@4.6.7))
+      '@better-auth/oauth-provider': 1.7.6(@better-auth/core@1.7.6(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-call@1.4.0(zod@4.6.7))(jose@6.2.5)(kysely@0.29.8)(nanostores@1.5.5))(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-auth@1.7.6(next@16.4.3(@playwright/test@1.64.1)(@types/node@24.19.2)(react-dom@19.1.10(react@19.1.10))(react@19.1.10))(pg@8.23.1)(react-dom@19.1.10(react@19.1.10))(react@19.1.10)(vitest@4.1.12(@types/node@24.19.2)(vite@8.3.7(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0))))(better-call@1.4.0(zod@4.6.7))
       '@better-auth/utils': 0.4.2
       '@better-fetch/fetch': 1.3.2
       '@supabase/auth-js': 2.79.0
-      better-auth: 1.7.6(next@16.4.3(@types/node@24.19.2)(react-dom@19.1.10(react@19.1.10))(react@19.1.10))(pg@8.23.1)(react-dom@19.1.10(react@19.1.10))(react@19.1.10)(vitest@4.1.12(@types/node@24.19.2)(vite@8.3.7(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)))
+      better-auth: 1.7.6(next@16.4.3(@playwright/test@1.64.1)(@types/node@24.19.2)(react-dom@19.1.10(react@19.1.10))(react@19.1.10))(pg@8.23.1)(react-dom@19.1.10(react@19.1.10))(react@19.1.10)(vitest@4.1.12(@types/node@24.19.2)(vite@8.3.7(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)))
       better-call: 1.4.0(zod@4.6.7)
       jose: 6.2.5
       zod: 4.6.7
     optionalDependencies:
-      next: 16.4.3(@types/node@24.19.2)(react-dom@19.1.10(react@19.1.10))(react@19.1.10)
+      next: 16.4.3(@playwright/test@1.64.1)(@types/node@24.19.2)(react-dom@19.1.10(react@19.1.10))(react@19.1.10)
       react: 19.1.10
       react-dom: 19.1.10(react@19.1.10)
     transitivePeerDependencies:
@@ -2374,6 +2398,10 @@ snapshots:
   '@opentelemetry/semantic-conventions@1.45.0': {}
 
   '@oxc-project/types@0.156.0': {}
+
+  '@playwright/test@1.64.1':
+    dependencies:
+      playwright: 1.64.1
 
   '@rolldown/binding-android-arm-eabi@1.2.18':
     optional: true
@@ -2609,7 +2637,7 @@ snapshots:
 
   baseline-browser-mapping@2.11.35: {}
 
-  better-auth@1.7.6(next@16.4.3(@types/node@24.19.2)(react-dom@19.1.10(react@19.1.10))(react@19.1.10))(pg@8.23.1)(react-dom@19.1.10(react@19.1.10))(react@19.1.10)(vitest@4.1.12(@types/node@24.19.2)(vite@8.3.7(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0))):
+  better-auth@1.7.6(next@16.4.3(@playwright/test@1.64.1)(@types/node@24.19.2)(react-dom@19.1.10(react@19.1.10))(react@19.1.10))(pg@8.23.1)(react-dom@19.1.10(react@19.1.10))(react@19.1.10)(vitest@4.1.12(@types/node@24.19.2)(vite@8.3.7(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0))):
     dependencies:
       '@better-auth/core': 1.7.6(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-call@1.4.0(zod@4.6.7))(jose@6.2.5)(kysely@0.29.8)(nanostores@1.5.5)
       '@better-auth/drizzle-adapter': 1.7.6(@better-auth/core@1.7.6(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-call@1.4.0(zod@4.6.7))(jose@6.2.5)(kysely@0.29.8)(nanostores@1.5.5))(@better-auth/utils@0.4.2)
@@ -2629,7 +2657,7 @@ snapshots:
       nanostores: 1.5.5
       zod: 4.6.7
     optionalDependencies:
-      next: 16.4.3(@types/node@24.19.2)(react-dom@19.1.10(react@19.1.10))(react@19.1.10)
+      next: 16.4.3(@playwright/test@1.64.1)(@types/node@24.19.2)(react-dom@19.1.10(react@19.1.10))(react@19.1.10)
       pg: 8.23.1
       react: 19.1.10
       react-dom: 19.1.10(react@19.1.10)
@@ -2929,7 +2957,7 @@ snapshots:
 
   nanostores@1.5.5: {}
 
-  next@16.4.3(@types/node@24.19.2)(react-dom@19.1.10(react@19.1.10))(react@19.1.10):
+  next@16.4.3(@playwright/test@1.64.1)(@types/node@24.19.2)(react-dom@19.1.10(react@19.1.10))(react@19.1.10):
     dependencies:
       '@next/env': 16.4.3
       '@swc/helpers': 0.5.23
@@ -2948,6 +2976,7 @@ snapshots:
       '@next/swc-linux-x64-musl': 16.4.3
       '@next/swc-win32-arm64-msvc': 16.4.3
       '@next/swc-win32-x64-msvc': 16.4.3
+      '@playwright/test': 1.64.1
       sharp: 0.35.5(@types/node@24.19.2)
     transitivePeerDependencies:
       - '@babel/core'
@@ -3022,6 +3051,12 @@ snapshots:
   picocolors@1.1.1: {}
 
   picomatch@4.0.7: {}
+
+  playwright-core@1.64.1: {}
+
+  playwright@1.64.1:
+    dependencies:
+      playwright-core: 1.64.1
 
   postcss@8.5.23:
     dependencies:

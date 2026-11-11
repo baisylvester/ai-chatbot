@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { deleteConversation, purgeExpiredData, setRetention } from "@chatbot/core";
+import { authorizeConversationDelete, deleteConversation, purgeExpiredData, setRetention } from "@chatbot/core";
 import { withTrustedContext, withUserContext } from "@chatbot/database";
 import { toActionError, type ActionState } from "@/lib/action-result";
 import { getPool } from "@/lib/db";
@@ -27,9 +27,9 @@ export async function deleteConversationAction(_prev: ActionState, fd: FormData)
   try {
     const user = await requireUser();
     const pool = getPool();
-    await withUserContext(pool, user.id, (userDb) =>
-      withTrustedContext(pool, (trustedDb) => deleteConversation(userDb, trustedDb, String(fd.get("sessionId") ?? ""), user.id)),
-    );
+    // Two separate transactions: authorize as the user, then delete as trusted. Never nested.
+    const grant = await withUserContext(pool, user.id, (db) => authorizeConversationDelete(db, String(fd.get("sessionId") ?? ""), user.id));
+    await withTrustedContext(pool, (db) => deleteConversation(db, grant));
   } catch (err) {
     return toActionError(err);
   }

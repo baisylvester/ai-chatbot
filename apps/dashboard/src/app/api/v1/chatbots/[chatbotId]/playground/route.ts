@@ -8,6 +8,7 @@ import { z } from "zod";
 import { DomainError, getChatbot, getOrganization, MAX_USER_MESSAGE_CHARS, runConversationTurn, type TurnEvent } from "@chatbot/core";
 import { withTrustedContext, withUserContext } from "@chatbot/database";
 import { getPool } from "@/lib/db";
+import { readJson } from "@/lib/public-api";
 import { retrieverFor } from "@/lib/knowledge";
 import { rateLimit } from "@/lib/rate-limit";
 import { getCurrentUser } from "@/lib/session";
@@ -52,13 +53,17 @@ function toClientEvent(e: TurnEvent): { event: string; data: unknown } {
 }
 
 export async function POST(request: Request, ctx: { params: Promise<{ chatbotId: string }> }) {
+  // Cookie-authenticated: accept only same-origin JSON requests (blocks cross-site form posts).
+  if (request.headers.get("origin") !== new URL(request.url).origin) return json(403, "Cross-site requests are not allowed");
+  if (!(request.headers.get("content-type") ?? "").toLowerCase().startsWith("application/json")) return json(415, "Send JSON");
+
   const user = await getCurrentUser();
   if (!user) return json(401, "Sign in to use the playground");
 
-  const limited = rateLimit(`playground:${user.id}`, 20, 60_000);
+  const limited = await rateLimit(`playground:${user.id}`, 20, 60_000);
   if (!limited.ok) return json(429, "Too many messages. Wait a moment and try again.", { "Retry-After": String(limited.retryAfterSec) });
 
-  const parsed = bodySchema.safeParse(await request.json().catch(() => null));
+  const parsed = bodySchema.safeParse(await readJson(request, 32_768));
   if (!parsed.success) return json(400, parsed.error.issues[0]?.message ?? "Invalid request");
 
   const { chatbotId } = await ctx.params;

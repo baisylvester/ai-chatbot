@@ -26,6 +26,13 @@ export function VoiceSettingsFields({ voice }: { voice: VoiceSettings }) {
           <option value="realtime">Realtime: live voice call (OpenAI Realtime{openaiReady ? "" : ", not configured"})</option>
         </select>
       </label>
+      {voice.mode === "realtime" && (
+        <p role="note" className="rounded-md border border-amber-300 p-2 text-xs sm:col-span-2 dark:border-amber-700">
+          ⚠ In realtime mode the visitor&apos;s browser connects to OpenAI directly and can see this chatbot&apos;s system prompt.
+          Don&apos;t put secrets in it. Calls are limited to one per conversation and a daily budget per organization
+          (REALTIME_DAILY_MINUTES, default 120).
+        </p>
+      )}
       <label className="flex flex-col gap-1 text-sm">
         <span className="font-medium">Speech-to-text</span>
         <select name="sttProvider" defaultValue={voice.sttProvider} className={selectClass}>

@@ -47,7 +47,14 @@ export default async function ConversationPage({ params }: { params: Promise<{ s
                 {m.content}
               </div>
               <span className="text-xs text-zinc-500">
-                {m.role === "user" ? "Visitor" : m.model ? `${m.provider} / ${m.model}` : "Assistant"} · {m.created_at.toISOString().slice(11, 16)} UTC
+                {m.provider === "voice-transcript"
+                  ? `Voice call transcript (${m.role === "user" ? "visitor" : "assistant"}, reported by the visitor's browser, unverified)`
+                  : m.role === "user"
+                    ? "Visitor"
+                    : m.model
+                      ? `${m.provider} / ${m.model}`
+                      : "Assistant"}{" "}
+                · {m.created_at.toISOString().slice(11, 16)} UTC
               </span>
               {m.citations.length > 0 && (
                 <ul className="text-xs text-zinc-600 dark:text-zinc-400">

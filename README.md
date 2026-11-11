@@ -4,7 +4,7 @@ A multi-tenant AI chatbot platform. You build the chatbot engine once, then any 
 
 ## Status
 
-**Phases 1–7 (Foundation, Core platform, AI engine, RAG engine, Universal embedding, Voice, Admin & analytics) are done.** Phase 8 (production readiness) hasn't started. Nothing on this page should be read as working beyond what this table lists.
+**All 8 phases are built.** See [DEPLOYMENT.md](DEPLOYMENT.md) to go live and [SECURITY.md](SECURITY.md) for the security model and review. Still to do before launch: run it against real AI provider keys, and deploy. Nothing on this page should be read as working beyond what this table lists.
 
 | Area | State |
 |---|---|
@@ -31,7 +31,7 @@ A multi-tenant AI chatbot platform. You build the chatbot engine once, then any 
 | Analytics (`/orgs/:id/analytics`): conversations, privacy-safe unique visitors, messages, tokens, estimated cost, knowledge-answer rate, failed requests, voice minutes, widget refusals; breakdowns by chatbot, website, channel and model; filters for date range, workspace, website, chatbot and provider | Done. 7 integration tests on a Neon branch. Checked in the browser (light and dark) |
 | Conversation history (`/orgs/:id/conversations`): filters, transcripts with citations, admin delete, retention setting with automatic purge; migration 0009 | Done. Checked in the browser |
 | Developer docs (`/docs`) and OpenAPI 3.1 (`/api/v1/openapi.json`) | Done |
-| Production hardening | Not started (Phase 8) |
+| Production readiness: security headers, startup env validation, shared Postgres rate limiting, DB timeouts, maintenance cron (stuck jobs, retention, abandoned voice calls), `/api/health`, JSON logs, fixes from an independent security review, Playwright cross-browser widget tests, CI workflow, deployment guide; migration 0010 | Done. 4 integration tests and 15 browser tests (Chromium, WebKit, mobile Chrome). Firefox runs in CI; Windows on the dev PC blocks Playwright's Firefox binary |
 
 ## Stack change: Neon instead of Supabase
 

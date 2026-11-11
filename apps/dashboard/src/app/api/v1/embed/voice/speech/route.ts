@@ -3,6 +3,7 @@ import { z } from "zod";
 import { synthesizeForWidget } from "@chatbot/core";
 import { MAX_TTS_CHARS } from "@chatbot/voice-engine";
 import { apiError, preflight } from "@/lib/public-api";
+import { readJson } from "@/lib/public-api";
 import { authorizeWidget, trusted, voiceErrorResponse } from "@/lib/widget-auth";
 
 export const runtime = "nodejs";
@@ -14,7 +15,7 @@ const bodySchema = z.object({ text: z.string().trim().min(1).max(MAX_TTS_CHARS *
 export async function POST(request: Request) {
   const ctx = await authorizeWidget(request, { key: "voice-tts", max: 30, windowMs: 60_000 });
   if (ctx instanceof Response) return ctx;
-  const body = bodySchema.safeParse(await request.json().catch(() => null));
+  const body = bodySchema.safeParse(await readJson(request, 16_384));
   if (!body.success) return apiError(400, "invalid_request", "text is required", ctx.headers);
   try {
     const { audio, mimeType } = await synthesizeForWidget(trusted, { bot: ctx.bot, sessionId: ctx.sessionId, text: body.data.text, env: process.env });

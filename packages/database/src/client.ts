@@ -18,8 +18,18 @@ export function withStrictSsl(connectionString: string): string {
   }
 }
 
+/**
+ * Timeouts keep one slow or stuck request from blocking everyone: waiting for a free connection
+ * fails after 10s, and any single statement is cancelled after 30s.
+ */
 export function createPool(connectionString: string, max = 10): pg.Pool {
-  return new pg.Pool({ connectionString: withStrictSsl(connectionString), max });
+  return new pg.Pool({
+    connectionString: withStrictSsl(connectionString),
+    max,
+    connectionTimeoutMillis: 10_000,
+    idleTimeoutMillis: 30_000,
+    statement_timeout: 30_000,
+  });
 }
 
 const userIdSchema = z.uuid();

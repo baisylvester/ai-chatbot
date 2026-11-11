@@ -24,6 +24,9 @@ import type { Chatbot } from "./services.ts";
 
 export type Retriever = (query: string) => Promise<RetrievedChunk[]>;
 
+/** messages.provider value for realtime transcripts, which are reported by the visitor's browser. */
+export const VOICE_TRANSCRIPT_PROVIDER = "voice-transcript";
+
 function requireMode(bot: Chatbot, ...modes: ("standard" | "realtime")[]) {
   const mode = bot.settings.voice.mode;
   if (!modes.includes(mode as "standard" | "realtime")) {
@@ -107,6 +110,44 @@ Owner instructions:
 ${owner}`;
 }
 
+/** Longest call duration billed for a call that never reported its end. */
+export const MAX_UNREPORTED_CALL_SECONDS = 60 * 60;
+
+/**
+ * Closes realtime calls that never called "end" and records their usage (elapsed time, capped), so
+ * abandoned calls are still billed. Used by maintenance and before starting a new call.
+ */
+export async function closeAbandonedVoiceSessions(db: DbClient, opts: { olderThanMinutes: number; chatSessionId?: string }): Promise<number> {
+  const params: unknown[] = [opts.olderThanMinutes, MAX_UNREPORTED_CALL_SECONDS];
+  const sessionCond = opts.chatSessionId ? `and chat_session_id = $${params.push(opts.chatSessionId)}` : "";
+  const closed = await db.query(
+    `with closed as (
+       update voice_sessions
+       set status = 'ended', ended_at = now(), duration_seconds = least(extract(epoch from now() - started_at)::int, $2)
+       where status = 'active' and started_at < now() - make_interval(mins => $1) ${sessionCond}
+       returning organization_id, chatbot_id, chat_session_id, model, duration_seconds)
+     insert into usage_records (organization_id, chatbot_id, chat_session_id, source, kind, provider, model, audio_seconds, status, error)
+     select organization_id, chatbot_id, chat_session_id, 'widget', 'realtime', 'openai', model, duration_seconds, 'ok', 'call end not reported; duration estimated'
+     from closed`,
+    params,
+  );
+  return closed.rowCount ?? 0;
+}
+
+/** Realtime minutes used today (UTC) by an organization, including calls still running. */
+async function realtimeMinutesToday(db: DbClient, organizationId: string): Promise<number> {
+  const row = (
+    await db.query<{ seconds: number }>(
+      `select coalesce((select sum(audio_seconds) from usage_records
+                         where organization_id = $1 and kind = 'realtime' and created_at >= date_trunc('day', now())), 0)
+             + coalesce((select sum(least(extract(epoch from now() - started_at), $2)) from voice_sessions
+                         where organization_id = $1 and status = 'active'), 0) as seconds`,
+      [organizationId, MAX_UNREPORTED_CALL_SECONDS],
+    )
+  ).rows[0];
+  return Number(row?.seconds ?? 0) / 60;
+}
+
 export async function startRealtimeSession(
   trusted: <T>(fn: (db: DbClient) => Promise<T>) => Promise<T>,
   input: { bot: Chatbot; sessionId: string; env: VoiceEnv },
@@ -114,6 +155,19 @@ export async function startRealtimeSession(
   const { bot } = input;
   requireMode(bot, "realtime");
   const { realtimeModel, realtimeVoice } = bot.settings.voice;
+
+  // Realtime calls bill per minute and the browser talks to the provider directly, so cap them:
+  // one live call per conversation, and a daily per-organization budget (REALTIME_DAILY_MINUTES).
+  const budget = Number(input.env.REALTIME_DAILY_MINUTES) || 120;
+  await trusted(async (db) => {
+    await closeAbandonedVoiceSessions(db, { olderThanMinutes: 30, chatSessionId: input.sessionId });
+    const live = (await db.query("select 1 from voice_sessions where chat_session_id = $1 and status = 'active'", [input.sessionId])).rowCount;
+    if (live) throw new DomainError("conflict", "A voice call is already running in this conversation");
+    if ((await realtimeMinutesToday(db, bot.organization_id)) >= budget) {
+      throw new DomainError("forbidden", "Voice calls are unavailable right now. Please type your question instead.");
+    }
+  });
+
   const secret = await createRealtimeSecret(input.env, {
     model: realtimeModel,
     voice: realtimeVoice,
@@ -121,12 +175,6 @@ export async function startRealtimeSession(
     tools: [KNOWLEDGE_TOOL],
   });
   const voiceSessionId = await trusted(async (db) => {
-    // At most a few concurrent calls per chat session; older active ones are closed.
-    await db.query(
-      `update voice_sessions set status = 'ended', ended_at = now(), duration_seconds = extract(epoch from now() - started_at)::int
-       where chat_session_id = $1 and status = 'active' and started_at < now() - interval '30 minutes'`,
-      [input.sessionId],
-    );
     return (
       await db.query<{ id: string }>(
         `insert into voice_sessions (organization_id, chatbot_id, chat_session_id, mode, provider, model, voice)
@@ -193,7 +241,8 @@ export async function endRealtimeSession(
       await db.query(
         `insert into messages (organization_id, chat_session_id, role, content, provider, model)
          values ($1, $2, $3, $4, $5, $6)`,
-        [input.bot.organization_id, input.sessionId, m.role, m.text, m.role === "assistant" ? "openai" : null, m.role === "assistant" ? ended.model : null],
+        // Reported by the visitor's browser, not by the provider: marked so the dashboard labels it as unverified.
+        [input.bot.organization_id, input.sessionId, m.role, m.text, VOICE_TRANSCRIPT_PROVIDER, ended.model],
       );
     }
     await recordUsage(db, input.bot, {

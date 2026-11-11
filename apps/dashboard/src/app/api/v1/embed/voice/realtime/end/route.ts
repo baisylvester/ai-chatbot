@@ -2,6 +2,7 @@
 import { z } from "zod";
 import { endRealtimeSession } from "@chatbot/core";
 import { apiError, preflight } from "@/lib/public-api";
+import { readJson } from "@/lib/public-api";
 import { authorizeWidget, trusted, voiceErrorResponse } from "@/lib/widget-auth";
 
 export const runtime = "nodejs";
@@ -13,7 +14,7 @@ const bodySchema = z.object({ voiceSessionId: z.string().max(80), transcript: z.
 export async function POST(request: Request) {
   const ctx = await authorizeWidget(request, { key: "voice-end", max: 10, windowMs: 60_000 });
   if (ctx instanceof Response) return ctx;
-  const body = bodySchema.safeParse(await request.json().catch(() => null));
+  const body = bodySchema.safeParse(await readJson(request, 262_144));
   if (!body.success) return apiError(400, "invalid_request", "voiceSessionId is required", ctx.headers);
   try {
     const result = await endRealtimeSession(trusted, {

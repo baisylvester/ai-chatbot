@@ -5,7 +5,20 @@ const serverEnvSchema = z.object({
   DATABASE_URL: z.string().regex(/^postgres(ql)?:\/\//, "Must be a postgres:// connection string"),
   NEON_AUTH_BASE_URL: z.url(),
   NEON_AUTH_COOKIE_SECRET: z.string().min(32, "Must be at least 32 characters"),
+  EMBED_TOKEN_SECRET: z.string().min(32, "Must be at least 32 characters"),
 });
+
+/** Extra requirements once deployed (checked at startup by instrumentation.ts). */
+const productionEnvSchema = serverEnvSchema.extend({
+  NEXT_PUBLIC_PLATFORM_URL: z.url().refine((u) => u.startsWith("https://"), "Must be the public https:// URL"),
+  CRON_SECRET: z.string().min(32, "Must be at least 32 characters"),
+});
+
+/** Names (never values) of missing or invalid production variables. */
+export function productionEnvProblems(): string[] {
+  const r = productionEnvSchema.safeParse(process.env);
+  return r.success ? [] : [...new Set(r.error.issues.map((i) => `${String(i.path[0])}: ${i.message}`))];
+}
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
 

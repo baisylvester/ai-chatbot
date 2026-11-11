@@ -12,6 +12,7 @@ import { withTrustedContext } from "@chatbot/database";
 import { getPool } from "@/lib/db";
 import { retrieverFor } from "@/lib/knowledge";
 import { apiError, errorResponse, sse, sseHeaders } from "@/lib/public-api";
+import { readJson } from "@/lib/public-api";
 import { rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
@@ -29,10 +30,10 @@ export async function POST(request: Request) {
   const pool = getPool();
   const apiKey = key ? await withTrustedContext(pool, (db) => resolveApiKey(db, key)) : null;
   if (!apiKey) return apiError(401, "unauthorized", "A valid API key is required (Authorization: Bearer cbk_…)");
-  const limited = rateLimit(`api:${apiKey.keyId}`, 120, 60_000);
+  const limited = await rateLimit(`api:${apiKey.keyId}`, 120, 60_000);
   if (!limited.ok) return apiError(429, "rate_limited", "Rate limit exceeded", { "Retry-After": String(limited.retryAfterSec) });
 
-  const body = bodySchema.safeParse(await request.json().catch(() => null));
+  const body = bodySchema.safeParse(await readJson(request, 32_768));
   if (!body.success) return apiError(400, "invalid_request", body.error.issues[0]?.message ?? "Invalid request");
 
   let bot;

@@ -1,0 +1,14 @@
+{
+  "name": "@chatbot/e2e",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:e2e": "playwright test",
+    "install-browsers": "playwright install chromium firefox webkit"
+  },
+  "devDependencies": {
+    "@chatbot/embed-sdk": "workspace:*",
+    "@playwright/test": "1.64.1"
+  }
+}

@@ -149,6 +149,19 @@ describe.skipIf(!url)("voice for widgets", () => {
     ]);
     expect(stored.usage).toEqual([{ kind: "realtime", model: "gpt-realtime", status: "ok" }]);
 
+    expect(stored.messages.every((m: { content: string }) => m.content)).toBe(true);
+    const provenance = await trusted(async (db) => (await db.query("select distinct provider from messages where chat_session_id = $1", [sessionId])).rows.map((r) => r.provider));
+    expect(provenance).toEqual(["voice-transcript"]);
+
+    // One live call per conversation, and a daily budget per organization.
+    const first = await startRealtimeSession(trusted, { bot, sessionId, env });
+    await expect(startRealtimeSession(trusted, { bot, sessionId, env })).rejects.toMatchObject({ code: "conflict" });
+    await endRealtimeSession(trusted, { bot, sessionId, voiceSessionId: first.voiceSessionId, transcript: [] });
+    await trusted((db) =>
+      db.query("insert into usage_records (organization_id, chatbot_id, source, kind, provider, model, audio_seconds) values ($1, $2, 'widget', 'realtime', 'openai', 'gpt-realtime', 7300)", [bot.organization_id, bot.id]),
+    );
+    await expect(startRealtimeSession(trusted, { bot, sessionId, env })).rejects.toMatchObject({ code: "forbidden" });
+
     // A finished call can't be ended or used again.
     await expect(endRealtimeSession(trusted, { bot, sessionId, voiceSessionId: call.voiceSessionId, transcript: [] })).rejects.toMatchObject({ code: "not_found" });
   });

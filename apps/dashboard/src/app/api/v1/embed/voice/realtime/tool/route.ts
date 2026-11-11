@@ -3,6 +3,7 @@ import { z } from "zod";
 import { runRealtimeTool } from "@chatbot/core";
 import { retrieverFor } from "@/lib/knowledge";
 import { apiError, preflight } from "@/lib/public-api";
+import { readJson } from "@/lib/public-api";
 import { authorizeWidget, trusted, voiceErrorResponse } from "@/lib/widget-auth";
 
 export const runtime = "nodejs";
@@ -14,7 +15,7 @@ const bodySchema = z.object({ voiceSessionId: z.string().max(80), name: z.string
 export async function POST(request: Request) {
   const ctx = await authorizeWidget(request, { key: "voice-tool", max: 30, windowMs: 60_000 });
   if (ctx instanceof Response) return ctx;
-  const body = bodySchema.safeParse(await request.json().catch(() => null));
+  const body = bodySchema.safeParse(await readJson(request, 16_384));
   if (!body.success) return apiError(400, "invalid_request", "Invalid tool call", ctx.headers);
   let args: unknown = {};
   try {

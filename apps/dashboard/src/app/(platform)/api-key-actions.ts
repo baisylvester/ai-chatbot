@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createApiKey, DomainError, revokeApiKey } from "@chatbot/core";
+import { authorizeApiKeyCreate, createApiKey, DomainError, revokeApiKey } from "@chatbot/core";
 import { withTrustedContext, withUserContext } from "@chatbot/database";
 import { toActionError, type ActionState } from "@/lib/action-result";
 import { getPool } from "@/lib/db";
@@ -16,9 +16,9 @@ export async function createApiKeyAction(
   try {
     const user = await requireUser();
     const pool = getPool();
-    const created = await withUserContext(pool, user.id, (userDb) =>
-      withTrustedContext(pool, (trustedDb) => createApiKey(userDb, trustedDb, { organizationId, name: String(fd.get("name") ?? ""), createdBy: user.id })),
-    );
+    // Two separate transactions: authorize as the user, then insert as trusted. Never nested.
+    const grant = await withUserContext(pool, user.id, (db) => authorizeApiKeyCreate(db, { organizationId, name: String(fd.get("name") ?? ""), createdBy: user.id }));
+    const created = await withTrustedContext(pool, (db) => createApiKey(db, grant));
     revalidatePath(`/orgs/${organizationId}`);
     return { key: created.plaintext };
   } catch (err) {

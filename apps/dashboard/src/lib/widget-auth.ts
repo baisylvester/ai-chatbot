@@ -24,7 +24,7 @@ export async function authorizeWidget(request: Request, limit: { key: string; ma
   if (!token) return apiError(401, "invalid_token", "Missing session token", headers);
   try {
     const { bot, sessionId } = await withTrustedContext(getPool(), (db) => authorizeWidgetMessage(db, token, origin, embedSecret(), platformOrigins(request)));
-    const rl = rateLimit(`${limit.key}:${sessionId}`, limit.max, limit.windowMs);
+    const rl = await rateLimit(`${limit.key}:${sessionId}`, limit.max, limit.windowMs);
     if (!rl.ok) return apiError(429, "rate_limited", "Too many requests. Wait a moment.", { ...headers, "Retry-After": String(rl.retryAfterSec) });
     return { bot, sessionId, origin, headers };
   } catch (err) {

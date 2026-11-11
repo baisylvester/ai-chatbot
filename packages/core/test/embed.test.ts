@@ -5,6 +5,7 @@ import { migrate } from "@chatbot/database/src/migrate.ts";
 import {
   addDomain,
   authorizeWidgetMessage,
+  authorizeApiKeyCreate,
   createApiKey,
   createChatbot,
   createOrganization,
@@ -146,9 +147,8 @@ describe.skipIf(!url)("embedding and API access", () => {
   });
 
   it("creates, resolves and revokes private API keys scoped to one organization", async () => {
-    const created = await withUserContext(pool, owner.id, (userDb) =>
-      trusted((trustedDb) => createApiKey(userDb, trustedDb, { organizationId: bot.organization_id, name: "Backend", createdBy: owner.id })),
-    );
+    const grant = await withUserContext(pool, owner.id, (db) => authorizeApiKeyCreate(db, { organizationId: bot.organization_id, name: "Backend", createdBy: owner.id }));
+    const created = await trusted((db) => createApiKey(db, grant));
     const stored = await trusted(async (db) => (await db.query("select key_hash from api_keys where id = $1", [created.id])).rows[0].key_hash);
     expect(stored).not.toBe(created.plaintext);
 

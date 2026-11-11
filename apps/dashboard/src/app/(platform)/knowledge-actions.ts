@@ -18,6 +18,17 @@ import { asUser } from "@/lib/session";
 
 const str = (fd: FormData, key: string) => String(fd.get(key) ?? "").trim();
 
+/** Only same-site dashboard paths (`/orgs/…` or `/chatbots/…`); anything else goes to /orgs. */
+function safeReturnPath(raw: string): string {
+  try {
+    const url = new URL(raw, "http://internal.invalid");
+    if (url.origin !== "http://internal.invalid") return "/orgs";
+    return /^\/(orgs|chatbots)\/[0-9a-f-]{36}(\/[a-z]+)?$/.test(url.pathname) ? url.pathname : "/orgs";
+  } catch {
+    return "/orgs";
+  }
+}
+
 export async function createSourceAction(_prev: ActionState, fd: FormData): Promise<ActionState> {
   let sourceId: string;
   try {
@@ -44,7 +55,7 @@ export async function deleteSourceAction(_prev: ActionState, fd: FormData): Prom
   } catch (err) {
     return toActionError(err);
   }
-  redirect(back.startsWith("/") && !back.startsWith("//") ? back : "/orgs");
+  redirect(safeReturnPath(back));
 }
 
 export async function addTextAction(_prev: ActionState, fd: FormData): Promise<ActionState> {

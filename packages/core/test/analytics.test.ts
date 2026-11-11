@@ -8,6 +8,7 @@ import {
   createWebsite,
   createWidgetSession,
   createWorkspace,
+  authorizeConversationDelete,
   deleteConversation,
   getAnalytics,
   getConversation,
@@ -194,8 +195,9 @@ describe.skipIf(!url)("analytics", () => {
 
   it("lets admins (not viewers) delete conversations", async () => {
     const victim = await conversation(botB, {});
-    await expect(as(viewer, (userDb) => trusted((t) => deleteConversation(userDb, t, victim, viewer.id)))).rejects.toMatchObject({ code: "forbidden" });
-    await as(owner, (userDb) => trusted((t) => deleteConversation(userDb, t, victim, owner.id)));
+    await expect(as(viewer, (db) => authorizeConversationDelete(db, victim, viewer.id))).rejects.toMatchObject({ code: "forbidden" });
+    const grant = await as(owner, (db) => authorizeConversationDelete(db, victim, owner.id));
+    await trusted((db) => deleteConversation(db, grant));
     await expect(as(owner, (db) => getConversation(db, victim))).rejects.toMatchObject({ code: "not_found" });
   });
 
