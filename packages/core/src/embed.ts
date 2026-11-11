@@ -129,6 +129,21 @@ export async function loadBot(db: DbClient, where: string, value: string): Promi
 }
 
 /**
+ * Records why a widget was refused (trusted). Only for chatbots that exist; unknown ids are not logged,
+ * so nobody can fill an organization's analytics by probing random ids.
+ */
+export async function recordWidgetRefusal(db: DbClient, publicId: string, origin: string | null, code: string): Promise<void> {
+  if (!publicChatbotIdSchema.safeParse(publicId).success) return;
+  const type = code === "origin_not_allowed" ? "widget_origin_refused" : code === "unavailable" ? "widget_chatbot_inactive" : null;
+  if (!type) return;
+  await db.query(
+    `insert into analytics_events (organization_id, chatbot_id, type, origin)
+     select organization_id, id, $2, $3 from chatbots where public_id = $1`,
+    [publicId, type, origin?.slice(0, 300) ?? null],
+  );
+}
+
+/**
  * Resolves a chatbot for a browser request: it must exist, be active, and the Origin must be allowed.
  * `trustedOrigins` are extra origins allowed for every chatbot (the platform itself, for the iframe page).
  * Unknown and inactive chatbots get the same error, so ids can't be probed.
@@ -149,19 +164,29 @@ export async function resolveForOrigin(
 }
 
 /** Creates a widget session and its signed token. Trusted context. */
+/**
+ * Privacy-preserving visitor key: an HMAC of the widget's random browser id, scoped to one
+ * organization. No IP address or cookie is used, and the raw id is never stored.
+ */
+export function visitorHash(secret: string | undefined, organizationId: string, visitorId: string | undefined): string | null {
+  if (!visitorId || !/^[A-Za-z0-9_-]{16,64}$/.test(visitorId)) return null;
+  return createHmac("sha256", assertSecret(secret)).update(`visitor:${organizationId}:${visitorId}`).digest("base64url").slice(0, 32);
+}
+
 export async function createWidgetSession(
   db: DbClient,
   bot: Chatbot,
   origin: string,
   secret: string | undefined,
   now = Date.now(),
+  visitorId?: string,
 ): Promise<{ token: string; sessionId: string; expiresAt: string }> {
   const exp = Math.floor(now / 1000) + SESSION_TTL_SECONDS;
   const row = (
     await db.query<{ id: string }>(
-      `insert into chat_sessions (organization_id, chatbot_id, source, origin, expires_at)
-       values ($1, $2, 'widget', $3, to_timestamp($4)) returning id`,
-      [bot.organization_id, bot.id, origin.slice(0, 300), exp],
+      `insert into chat_sessions (organization_id, chatbot_id, source, origin, expires_at, visitor_hash)
+       values ($1, $2, 'widget', $3, to_timestamp($4), $5) returning id`,
+      [bot.organization_id, bot.id, origin.slice(0, 300), exp, visitorHash(secret, bot.organization_id, visitorId)],
     )
   ).rows[0]!;
   const token = signEmbedToken({ sid: row.id, cid: bot.id, org: bot.organization_id, origin, exp }, secret);

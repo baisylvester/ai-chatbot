@@ -5,3 +5,4 @@ export * from "./conversation.ts";
 export * from "./knowledge.ts";
 export * from "./embed.ts";
 export * from "./voice.ts";
+export * from "./analytics.ts";

@@ -25,8 +25,20 @@ export default async function OrganizationPage({ params }: { params: Promise<{ o
       <h1 className="mt-2 text-2xl font-semibold">{org.name}</h1>
       <p className="text-sm text-zinc-500">
         Your role: {org.role} ·{" "}
+        <Link href={`/orgs/${org.id}/analytics`} className="underline">
+          Analytics
+        </Link>{" "}
+        ·{" "}
+        <Link href={`/orgs/${org.id}/conversations`} className="underline">
+          Conversations
+        </Link>{" "}
+        ·{" "}
         <Link href={`/orgs/${org.id}/knowledge`} className="underline">
           Knowledge
+        </Link>{" "}
+        ·{" "}
+        <Link href="/docs" className="underline">
+          API docs
         </Link>
       </p>
       <Section title="Workspaces">

@@ -3,7 +3,8 @@
  * Starts a widget conversation for an allowed website and returns a short-lived session token.
  */
 import { z } from "zod";
-import { createWidgetSession, resolveForOrigin, toPublicConfig } from "@chatbot/core";
+import { createWidgetSession, EmbedError, resolveForOrigin, toPublicConfig } from "@chatbot/core";
+import { logRefusal } from "@/lib/widget-events";
 import { withTrustedContext } from "@chatbot/database";
 import { getPool } from "@/lib/db";
 import { apiError, clientIp, corsHeaders, embedSecret, errorResponse, platformOrigins, preflight, requestOrigin } from "@/lib/public-api";
@@ -14,7 +15,7 @@ export const dynamic = "force-dynamic";
 
 export const OPTIONS = preflight;
 
-const bodySchema = z.object({ chatbotId: z.string().max(80) });
+const bodySchema = z.object({ chatbotId: z.string().max(80), visitorId: z.string().max(64).optional() });
 
 export async function POST(request: Request) {
   const origin = requestOrigin(request);
@@ -27,11 +28,12 @@ export async function POST(request: Request) {
   try {
     const result = await withTrustedContext(getPool(), async (db) => {
       const bot = await resolveForOrigin(db, body.data.chatbotId, origin, platformOrigins(request));
-      const session = await createWidgetSession(db, bot, origin!, embedSecret());
+      const session = await createWidgetSession(db, bot, origin!, embedSecret(), Date.now(), body.data.visitorId);
       return { ...session, config: toPublicConfig(bot) };
     });
     return Response.json({ token: result.token, expiresAt: result.expiresAt, config: result.config }, { headers });
   } catch (err) {
+    if (err instanceof EmbedError) await logRefusal(body.data.chatbotId, origin, err.code);
     return errorResponse(err, headers);
   }
 }

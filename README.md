@@ -4,7 +4,7 @@ A multi-tenant AI chatbot platform. You build the chatbot engine once, then any 
 
 ## Status
 
-**Phases 1–6 (Foundation, Core platform, AI engine, RAG engine, Universal embedding, Voice) are done.** Phases 7–8 (admin analytics, production readiness) haven't started. Nothing on this page should be read as working beyond what this table lists.
+**Phases 1–7 (Foundation, Core platform, AI engine, RAG engine, Universal embedding, Voice, Admin & analytics) are done.** Phase 8 (production readiness) hasn't started. Nothing on this page should be read as working beyond what this table lists.
 
 | Area | State |
 |---|---|
@@ -28,7 +28,10 @@ A multi-tenant AI chatbot platform. You build the chatbot engine once, then any 
 | `packages/react` wrapper, `apps/embed-demo` plain HTML demo site, dashboard install panel with copy buttons and API key management | Done |
 | `packages/voice-engine`: speech-to-text, text-to-speech (OpenAI, ElevenLabs, dev mock) and OpenAI Realtime client secrets, with declared capabilities and a voice catalog | Done. 13 unit tests that check request formats against mocked HTTP |
 | Voice in `core` and the widget API: standard mode (tap to talk → chat with knowledge → reply read aloud) and realtime mode (WebRTC call; a `search_knowledge` tool scoped to the chatbot; transcript saved when the call ends); voice settings per chatbot; usage by kind (stt/tts/realtime); migration 0008 | Done. 4 integration tests on a Neon branch. Tested in the browser with the mock provider: auto read-aloud, mute, blocked-microphone message, realtime unavailable message. **Not yet tested with real OpenAI/ElevenLabs keys or a real microphone** |
-| Admin analytics, production hardening | Not started (Phases 7–8) |
+| Analytics (`/orgs/:id/analytics`): conversations, privacy-safe unique visitors, messages, tokens, estimated cost, knowledge-answer rate, failed requests, voice minutes, widget refusals; breakdowns by chatbot, website, channel and model; filters for date range, workspace, website, chatbot and provider | Done. 7 integration tests on a Neon branch. Checked in the browser (light and dark) |
+| Conversation history (`/orgs/:id/conversations`): filters, transcripts with citations, admin delete, retention setting with automatic purge; migration 0009 | Done. Checked in the browser |
+| Developer docs (`/docs`) and OpenAPI 3.1 (`/api/v1/openapi.json`) | Done |
+| Production hardening | Not started (Phase 8) |
 
 ## Stack change: Neon instead of Supabase
 
@@ -133,6 +136,14 @@ Notes:
 - **Development:** `VOICE_MOCK=1` enables a mock provider (a fixed transcript and a test tone) for development only.
 - **Usage:** recorded per request: speech-to-text (audio seconds reported by the browser), text-to-speech (characters) and realtime (call duration).
 - **Settings delay:** visitors see a settings change within about a minute, because the public config is cached.
+
+## Analytics and privacy
+
+- **Unique visitors:** the widget keeps a random ID in the visitor's browser (localStorage). The server stores only an HMAC of it, scoped per organization. No IP addresses or cookies are used.
+- **Estimated cost:** computed from `packages/shared/src/pricing.ts` (USD per million tokens). Edit it to match your contracts. Models without a price show no estimate rather than a guess.
+- **Retention:** each organization can keep conversations for 7–730 days. Older conversations, with their messages, voice transcripts and widget events, are deleted when the setting is saved and each time the analytics page is opened. Usage counts are kept without the conversation text. For a scheduled purge, call `purgeExpiredData` from a cron job.
+- **Deletion:** owners and admins can delete a single conversation, for example when a visitor asks for their data to be removed. Each deletion is audit-logged.
+- **Widget health:** loads refused because of a domain or an inactive chatbot are recorded, throttled, and only for chatbots that exist. They show up under Analytics → Widget health.
 
 ## Layout
 

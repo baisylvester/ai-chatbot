@@ -112,6 +112,26 @@ const store = {
   },
 };
 
+/**
+ * A random id kept in this browser so the platform can count unique visitors. It contains no personal
+ * data; the server stores only a keyed hash of it. Absent when storage is unavailable.
+ */
+function visitorId(): string | undefined {
+  try {
+    const key = "ai-chatbot:visitor";
+    let id = window.localStorage.getItem(key);
+    if (!id || !/^[A-Za-z0-9_-]{16,64}$/.test(id)) {
+      const bytes = new Uint8Array(16);
+      crypto.getRandomValues(bytes);
+      id = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+      window.localStorage.setItem(key, id);
+    }
+    return id;
+  } catch {
+    return undefined;
+  }
+}
+
 export class ChatClient {
   readonly apiUrl: string;
   readonly chatbotId: string;
@@ -144,7 +164,7 @@ export class ChatClient {
       method: "POST",
       credentials: "omit",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chatbotId: this.chatbotId }),
+      body: JSON.stringify({ chatbotId: this.chatbotId, visitorId: visitorId() }),
     });
     if (!res.ok) throw await asApiError(res);
     const body = (await res.json()) as { token: string; expiresAt: string };

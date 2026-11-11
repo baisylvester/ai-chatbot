@@ -1,5 +1,6 @@
 /** GET /api/v1/embed/config?chatbotId=cb_… — public widget settings for an allowed website. */
-import { resolveForOrigin, toPublicConfig } from "@chatbot/core";
+import { EmbedError, resolveForOrigin, toPublicConfig } from "@chatbot/core";
+import { logRefusal } from "@/lib/widget-events";
 import { withTrustedContext } from "@chatbot/database";
 import { getPool } from "@/lib/db";
 import { apiError, corsHeaders, errorResponse, platformOrigins, preflight, requestOrigin } from "@/lib/public-api";
@@ -20,6 +21,7 @@ export async function GET(request: Request) {
     const bot = await withTrustedContext(getPool(), (db) => resolveForOrigin(db, chatbotId, origin, platformOrigins(request)));
     return Response.json(toPublicConfig(bot), { headers: { ...headers, "Cache-Control": "private, max-age=60" } });
   } catch (err) {
+    if (err instanceof EmbedError) await logRefusal(chatbotId, origin, err.code);
     return errorResponse(err, headers);
   }
 }

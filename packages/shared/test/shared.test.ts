@@ -67,3 +67,13 @@ describe("chunkText", () => {
     expect(() => chunkText("x", 10, 10)).toThrow(RangeError);
   });
 });
+
+describe("pricing", () => {
+  it("estimates cost by exact id or dated variant, and returns null for unknown models", async () => {
+    const { estimateCost, priceFor } = await import("../src/index.ts");
+    expect(estimateCost("gpt-4.1-mini", 1_000_000, 500_000)).toBeCloseTo(0.4 + 0.8, 6);
+    expect(priceFor("gpt-4.1-mini-2025-04-14")).toEqual({ input: 0.4, output: 1.6 });
+    expect(priceFor("gpt-4.1-2025-04-14")).toEqual({ input: 2, output: 8 });
+    expect(estimateCost("mock-1", 100, 100)).toBeNull();
+  });
+});
