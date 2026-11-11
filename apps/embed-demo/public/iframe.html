@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Acme Hardware (embed demo: iframe)</title>
+    <link rel="stylesheet" href="hostile.css" />
+    <script src="demo.js"></script>
+  </head>
+  <body>
+    <nav id="nav"></nav>
+    <h1>iframe</h1>
+    <p>The chat runs inside an iframe served by the platform. Only allowed domains can frame it (CSP frame-ancestors).</p>
+    <div id="frame-slot" style="max-width: 420px"></div>
+    <p id="frame-status">Waiting for the frame…</p>
+    <script>
+      var s = document.createElement("script");
+      s.src = window.DEMO.api + "/embed.js";
+      s.onload = function () {
+        var frame = window.AIChatbot.mountIframe({
+          chatbotId: window.DEMO.bot,
+          apiUrl: window.DEMO.api,
+          target: document.getElementById("frame-slot"),
+          height: 520,
+        });
+        frame.addEventListener("ai-chatbot:ready", function () {
+          document.getElementById("frame-status").textContent = "Frame reported ready (validated postMessage).";
+        });
+      };
+      document.head.appendChild(s);
+    </script>
+  </body>
+</html>

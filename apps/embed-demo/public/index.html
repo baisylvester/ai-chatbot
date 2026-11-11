@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Acme Hardware (embed demo: script snippet)</title>
+    <link rel="stylesheet" href="hostile.css" />
+    <script src="demo.js"></script>
+  </head>
+  <body>
+    <nav id="nav"></nav>
+    <h1>Acme Hardware</h1>
+    <p>A plain HTML site with no framework and very aggressive global CSS. The chat launcher should still appear in the corner, styled normally.</p>
+    <button id="host-button">Host page button</button>
+    <p id="host-status">Host script running.</p>
+    <div class="sticky">A fixed footer with z-index 999999 (the widget should sit above it).</div>
+
+    <!-- The install snippet, as shown in the dashboard: -->
+    <script>
+      window.AIChatbotConfig = { chatbotId: window.DEMO.bot, apiUrl: window.DEMO.api, position: "bottom-right", theme: "auto" };
+      (function (d, s) {
+        s = d.createElement("script");
+        s.src = window.DEMO.api + "/embed.js";
+        s.async = true;
+        d.head.appendChild(s);
+      })(document);
+    </script>
+    <script>
+      // Host page JavaScript keeps working alongside the widget.
+      document.getElementById("host-button").addEventListener("click", function () {
+        document.getElementById("host-status").textContent = "Host button clicked.";
+      });
+    </script>
+  </body>
+</html>

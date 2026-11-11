@@ -4,7 +4,7 @@ A multi-tenant AI chatbot platform. You build the chatbot engine once, then any 
 
 ## Status
 
-**Phases 1–4 (Foundation, Core platform, AI engine, RAG engine) are done.** Phases 5–8 haven't started. Nothing on this page should be read as working beyond what this table lists.
+**Phases 1–5 (Foundation, Core platform, AI engine, RAG engine, Universal embedding) are done.** Phases 6–8 (voice, analytics, production readiness) haven't started. Nothing on this page should be read as working beyond what this table lists.
 
 | Area | State |
 |---|---|
@@ -21,7 +21,11 @@ A multi-tenant AI chatbot platform. You build the chatbot engine once, then any 
 | `packages/rag-engine`: PDF/DOCX/TXT/Markdown/HTML extraction, URL import with SSRF protection, LangChain chunking, embeddings (OpenAI, Gemini, Neon AI Gateway; dev-only mock), Reciprocal Rank Fusion | Done. 18 unit tests, including a real DOCX and a PDF |
 | Knowledge in `core`: global and per-chatbot sources, explicit assignment, documents, duplicate detection, background ingestion jobs, reprocessing, hybrid retrieval (pgvector + full text) scoped per chatbot, citations stored with replies; migration 0005 | Done. 8 integration tests on a Neon branch |
 | Dashboard knowledge screens (org knowledge, source page with upload/URL/text, chatbot assignments) and sources shown in Test chat | Done. Tested end to end with the mock embedder and mock LLM. **Not yet run with real embeddings** |
-| Embed SDK, Web Component, iframe, REST API | Not started (Phase 5) |
+| `packages/embed-sdk`: one framework-free `embed.js` (16.6 KB, 6 KB gzipped) with script auto-mount, `<ai-chatbot>` Web Component (Shadow DOM), and an iframe helper with validated `postMessage` | Done. 4 unit tests. Tested in the browser on a separate origin with hostile CSS |
+| Public widget API (`/api/v1/embed/config`, `/sessions`, `/messages`): CORS, Origin allowlist re-checked on every request, HMAC session tokens (2 h), rate limits, generic public errors | Done. 7 integration tests on a Neon branch |
+| iframe page (`/embed/frame`) with CSP `frame-ancestors` from the allowed domains | Done. Tested allowed and blocked framing in the browser |
+| Server-to-server REST API (`POST /api/v1/chat`) with private API keys (hashed, revocable, organization-scoped); JSON or SSE | Done. Tested create, use, stream, revoke |
+| `packages/react` wrapper, `apps/embed-demo` plain HTML demo site, dashboard install panel with copy buttons and API key management | Done |
 | Voice, analytics, production hardening | Not started (Phases 6–8) |
 
 ## Stack change: Neon instead of Supabase
@@ -84,6 +88,31 @@ Known limits:
 - URL import checks DNS on every redirect but doesn't pin the resolved address, so a narrow DNS-rebinding window remains.
 - The semantic similarity cut-off (0.2) is a starting point and should be tuned once real embeddings are in use.
 
+## Embedding on a website
+
+Every chatbot page has an **Install on a website** panel with ready-to-copy snippets. The chatbot must be **active**, and the site's domain must be in the website's allowed domains. Subdomains are included automatically. `localhost` is accepted for development.
+
+| Method | Use it for |
+|---|---|
+| JavaScript snippet (`window.AIChatbotConfig` + `embed.js`) | Any site: plain HTML, WordPress (header/footer plugin), Shopify (`theme.liquid`), Webflow/Wix custom code, PHP/Laravel, Django, ASP.NET, static sites |
+| `<ai-chatbot>` Web Component | Placing the chat inline or controlling it from your own code. Theme it with CSS variables (`--aic-accent`, `--aic-font`, `--aic-width`, …) |
+| iframe (`/embed/frame?chatbotId=…`) | Locked-down sites. Only allowed domains can frame it |
+| `@chatbot/react` (`<AIChatbot />`) | React and Next.js (render it from a Client Component). Vue, Svelte and Angular can use the Web Component directly |
+| REST API (`POST /api/v1/chat` + private key) | Your own backend or apps. Keep keys on the server |
+
+Try it locally:
+1. Run `node apps/embed-demo/server.mjs`.
+2. Open `http://localhost:4020/index.html?bot=cb_…` (use a chatbot whose website allows `localhost`).
+
+The demo pages deliberately use aggressive global CSS to show that the widget's styling is isolated.
+
+Security notes:
+- The public chatbot ID is not a secret and grants nothing by itself.
+- Origin checks stop other websites' browsers from using a chatbot. They can't stop scripts that fake headers; rate limits cover those.
+- Pausing a chatbot or removing a domain takes effect on the next message.
+- Widget sessions are signed with `EMBED_TOKEN_SECRET`, which must be 32+ characters and set in production.
+- Rate limits are in memory per server process until a shared store is added.
+
 ## Layout
 
 ```text
@@ -94,11 +123,14 @@ packages/core         Tenant services and conversation turns
 packages/ai-providers LangChain.js provider adapters
 packages/ai-engine    Prompt building, streaming, fallback
 packages/rag-engine   Extraction, URL import, chunking, embeddings, ranking
+packages/embed-sdk    embed.js: script snippet, <ai-chatbot> Web Component, iframe helper
+packages/react        React / Next.js wrapper
+apps/embed-demo       Plain HTML demo site on its own origin (port 4020)
 tools/                Development helpers (mock LLM server, API key setup)
 knowledge_sources     Local source documents waiting to be ingested (git-ignored)
 ```
 
-Planned packages: `voice-engine`, `embed-sdk`, `web-component`, `react`.
+Planned packages: `voice-engine`.
 
 ## Getting started
 

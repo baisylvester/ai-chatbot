@@ -16,3 +16,5 @@ knowledge_sources/*
 # Generated build files
 *.tsbuildinfo
 next-env.d.ts
+# Built widget (packages/embed-sdk build output)
+apps/dashboard/public/embed.js

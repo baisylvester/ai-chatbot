@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Acme Hardware (embed demo: Web Component)</title>
+    <link rel="stylesheet" href="hostile.css" />
+    <script src="demo.js"></script>
+  </head>
+  <body>
+    <nav id="nav"></nav>
+    <h1>Web Component</h1>
+    <p>Two instances on one page: an inline panel below, and a floating launcher on the left with a custom accent colour.</p>
+    <div id="inline-slot" style="height: 480px; max-width: 420px; border: 1px solid #ccc"></div>
+    <script>
+      var s = document.createElement("script");
+      s.src = window.DEMO.api + "/embed.js";
+      s.onload = function () {
+        var inline = document.createElement("ai-chatbot");
+        inline.setAttribute("chatbot-id", window.DEMO.bot);
+        inline.setAttribute("api-url", window.DEMO.api);
+        inline.setAttribute("mode", "inline");
+        inline.setAttribute("theme", "light");
+        document.getElementById("inline-slot").appendChild(inline);
+
+        var floating = document.createElement("ai-chatbot");
+        floating.setAttribute("chatbot-id", window.DEMO.bot);
+        floating.setAttribute("api-url", window.DEMO.api);
+        floating.setAttribute("position", "bottom-left");
+        floating.setAttribute("theme", "dark");
+        floating.style.setProperty("--aic-accent", "#0f766e");
+        document.body.appendChild(floating);
+      };
+      document.head.appendChild(s);
+    </script>
+  </body>
+</html>

@@ -118,6 +118,10 @@ describe.skipIf(!url)("knowledge ingestion and retrieval", () => {
     expect(forB).toEqual([]);
     const forOtherOrg = await trusted((db) => retrieveForChatbot(db, botOther, q, { embedder, queryVector, minSimilarity: 0 }));
     expect(forOtherOrg).toEqual([]);
+
+    // Titles are searchable even when the passage itself never uses those words.
+    const byTitle = await trusted((db) => retrieveForChatbot(db, botA, "opening"));
+    expect(byTitle[0]?.title).toBe("Opening hours");
   });
 
   it("exposes global knowledge only after explicit assignment", async () => {

@@ -328,7 +328,8 @@ export async function processIngestionJob(trusted: TrustedRunner, jobId: string,
     if (chunks.length === 0) throw new ExtractionError("The document has no text");
     const vectors: number[][] = [];
     for (let i = 0; i < chunks.length; i += EMBED_BATCH) {
-      vectors.push(...(await deps.embedder.embedDocuments(chunks.slice(i, i + EMBED_BATCH).map((c) => c.content))));
+      // The document title gives each chunk context ("Store hours" + a passage that never says "hours").
+      vectors.push(...(await deps.embedder.embedDocuments(chunks.slice(i, i + EMBED_BATCH).map((c) => `${title}\n\n${c.content}`))));
     }
 
     await trusted(async (db) => {

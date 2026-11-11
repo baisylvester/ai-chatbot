@@ -3,7 +3,9 @@ import Link from "next/link";
 import { getChatbot, getOrganization, getWebsite, getWorkspace, listChatbotKnowledge } from "@chatbot/core";
 import { providerLabels } from "@chatbot/shared";
 import { ActionForm, Field } from "@/components/action-form";
+import { CopyBlock } from "@/components/copy-block";
 import { Playground } from "@/components/playground";
+import { embedSnippets } from "@/lib/snippets";
 import { ProviderSelect, ProviderStatus } from "@/components/provider-select";
 import { Breadcrumbs, Card, Section } from "@/components/ui";
 import { orNotFound } from "@/lib/load";
@@ -34,10 +36,8 @@ export default async function ChatbotPage({ params }: { params: Promise<{ chatbo
   const h = await headers();
   const platformUrl =
     process.env.NEXT_PUBLIC_PLATFORM_URL ?? `${h.get("x-forwarded-proto") ?? "http"}://${h.get("host") ?? "localhost:3000"}`;
-  const snippet = `<script>
-  window.AIChatbotConfig = { chatbotId: "${bot.public_id}", apiUrl: "${platformUrl}", position: "${s.position}", theme: "${s.theme}" };
-</script>
-<script src="${platformUrl}/embed.js" async></script>`;
+  const snippets = embedSnippets({ platformUrl, chatbotId: bot.public_id, position: s.position, theme: s.theme });
+  const domains = site.domains.map((d) => d.domain);
 
   return (
     <>
@@ -203,12 +203,34 @@ export default async function ChatbotPage({ params }: { params: Promise<{ chatbo
       </Section>
 
       <Section
-        title="Embed code"
-        description="Preview of the install snippet. The embed script and chat API arrive in Phase 5, so this snippet does not work on a site yet."
+        title="Install on a website"
+        description="Pick one method. The chatbot ID in these snippets is public; it only works on the allowed domains below."
       >
-        <pre className="overflow-x-auto rounded-lg bg-zinc-100 p-4 text-xs dark:bg-zinc-900">
-          <code>{snippet}</code>
-        </pre>
+        <div
+          className={`mb-4 rounded-lg border p-3 text-sm ${
+            bot.status === "active" ? "border-emerald-300 dark:border-emerald-800" : "border-amber-300 dark:border-amber-700"
+          }`}
+        >
+          <p>
+            {bot.status === "active"
+              ? "Status: active. The widget will load on the allowed domains."
+              : `Status: ${bot.status}. Set the chatbot to active before it can be used on a website.`}
+          </p>
+          <p className="mt-1 text-zinc-600 dark:text-zinc-400">
+            Allowed domains (and their subdomains): {domains.join(", ")}.{" "}
+            <Link href={`/websites/${site.id}`} className="underline">
+              Manage domains
+            </Link>
+            . Other websites are refused, including over plain http (except localhost).
+          </p>
+        </div>
+        <div className="grid gap-4">
+          <CopyBlock label="JavaScript snippet (any website: HTML, WordPress, Shopify, Webflow, Wix, PHP, Django, ASP.NET…)" code={snippets.script} />
+          <CopyBlock label="Web Component" code={snippets.webComponent} />
+          <CopyBlock label="iframe" code={snippets.iframe} />
+          <CopyBlock label="React / Next.js" code={snippets.react} />
+          <CopyBlock label="REST API (server-to-server, needs a private API key from the organization page)" code={snippets.rest} />
+        </div>
       </Section>
     </>
   );

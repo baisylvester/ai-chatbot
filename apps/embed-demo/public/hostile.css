@@ -1,0 +1,9 @@
+/* Deliberately aggressive host-page CSS. The widget must look and work the same despite it. */
+* { box-sizing: content-box !important; font-family: "Comic Sans MS", cursive !important; }
+body { margin: 0; padding: 24px; background: #fffbe6; color: #7c2d12; line-height: 2.2; }
+button, input, textarea { all: unset; background: hotpink !important; color: yellow !important; border: 4px dashed lime !important; }
+div { padding: 3px; }
+svg { display: none !important; width: 200px !important; }
+.sticky { position: fixed; bottom: 0; left: 0; right: 0; z-index: 999999; background: #7c2d12; color: white; padding: 8px; }
+.warn { background: #fee2e2; padding: 8px; }
+#nav a { margin-right: 12px; }

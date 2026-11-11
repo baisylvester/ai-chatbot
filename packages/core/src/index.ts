@@ -3,3 +3,4 @@ export * from "./ids.ts";
 export * from "./services.ts";
 export * from "./conversation.ts";
 export * from "./knowledge.ts";
+export * from "./embed.ts";

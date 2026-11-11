@@ -29,13 +29,16 @@ export const createWorkspaceSchema = z.object({
   slug: slugSchema,
 });
 
-/** Domains are stored lowercase, without scheme, path or port. */
+/**
+ * Domains are stored lowercase, without scheme, path or port. `localhost` is accepted for local
+ * development (any port, http allowed); every other domain must be served over https.
+ */
 export const domainSchema = z
   .string()
   .trim()
   .toLowerCase()
   .regex(
-    /^(?=.{1,253}$)(?!-)(?:[a-z0-9-]{1,63}\.)+[a-z]{2,63}$/,
+    /^(?:localhost|(?=.{1,253}$)(?!-)(?:[a-z0-9-]{1,63}\.)+[a-z]{2,63})$/,
     "Enter a bare hostname such as example.com",
   );
 

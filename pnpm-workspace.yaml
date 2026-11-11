@@ -1,3 +1,6 @@
 packages:
   - "apps/*"
   - "packages/*"
+# Dependency install scripts are blocked by default; esbuild's only links its platform binary.
+allowBuilds:
+  esbuild: true
