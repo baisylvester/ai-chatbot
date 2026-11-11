@@ -178,6 +178,20 @@ describe.skipIf(!url)("knowledge ingestion and retrieval", () => {
     expect(chunks).toBe(ready.chunk_count);
   });
 
+  it("ingests without an embedding provider and finds the document by keywords", async () => {
+    const source = await as(owner, (db) => createKnowledgeSource(db, { chatbotId: botB.id, name: "Keyword only" }));
+    const doc = await as(owner, (db) => addDocument(db, { sourceId: source.id, kind: "text", title: "Warehouse", content: "The Zanzibar warehouse ships parcels every Thursday." }));
+    const jobId = await trusted((db) => enqueueIngestion(db, doc));
+    expect(await processIngestionJob(trusted, jobId, { embedder: null })).toBe("succeeded");
+    const ready = await as(owner, (db) => getDocument(db, doc.id));
+    expect(ready).toMatchObject({ status: "ready", embedding_model: null });
+    expect(ready.chunk_count).toBeGreaterThan(0);
+    const hits = await trusted((db) => retrieveForChatbot(db, botB, "When does the Zanzibar warehouse ship?"));
+    expect(hits.map((h) => h.documentId)).toContain(doc.id);
+    const other = await trusted((db) => retrieveForChatbot(db, botA, "When does the Zanzibar warehouse ship?"));
+    expect(other.map((h) => h.documentId)).not.toContain(doc.id);
+  });
+
   it("marks documents failed with a readable reason", async () => {
     const source = await as(owner, (db) => createKnowledgeSource(db, { chatbotId: botA.id, name: "Failing" }));
     const doc = await as(owner, (db) => addDocument(db, { sourceId: source.id, kind: "url", url: "https://down.example/" }));

@@ -39,7 +39,7 @@ export default async function KnowledgeSourcePage({ params }: { params: Promise<
   );
   const canEdit = org.role === "owner" || org.role === "admin";
   const busy = docs.some((d) => d.status === "pending" || d.status === "processing");
-  const { embedder, problem } = getEmbedder();
+  const { embedder } = getEmbedder();
   const back = source.scope === "chatbot" && source.chatbot_id ? `/chatbots/${source.chatbot_id}` : `/orgs/${org.id}/knowledge`;
 
   return (
@@ -59,7 +59,7 @@ export default async function KnowledgeSourcePage({ params }: { params: Promise<
           : `Only for ${source.chatbot_name ?? "one chatbot"}`}
         {source.description ? ` · ${source.description}` : ""}
       </p>
-      {!embedder && <p className="mt-2 text-sm text-amber-700 dark:text-amber-500">Documents can't be processed yet: {problem}</p>}
+      {!embedder && <p className="mt-2 text-sm text-amber-700 dark:text-amber-500">No embedding provider is configured, so documents are searchable by keywords only. Add one, then choose Reprocess on a document for meaning-based search.</p>}
 
       <Section title="Documents">
         <AutoRefresh active={busy} />
@@ -80,7 +80,7 @@ export default async function KnowledgeSourcePage({ params }: { params: Promise<
                       d.source_type
                     )}
                     {d.size_bytes != null && ` · ${formatBytes(d.size_bytes)}`}
-                    {d.status === "ready" && ` · ${d.chunk_count} chunks · ${d.embedding_model}`}
+                    {d.status === "ready" && ` · ${d.chunk_count} chunks · ${d.embedding_model ?? "keyword search only"}`}
                   </div>
                   {d.error && <div className="text-xs text-red-600">{d.error}</div>}
                 </div>

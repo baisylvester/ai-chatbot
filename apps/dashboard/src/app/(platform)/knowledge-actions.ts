@@ -141,7 +141,7 @@ export async function uploadFileAction(_prev: ActionState, fd: FormData): Promis
     return {
       ok: embedder
         ? `Uploaded "${title}". Processing in the background.`
-        : `Saved "${title}". Configure an embedding provider, then choose Reprocess on the document to make it searchable.`,
+        : `Uploaded "${title}". It will be searchable by keywords only until an embedding provider is configured.`,
       sourceId: doc.knowledge_source_id,
     };
   } catch (err) {

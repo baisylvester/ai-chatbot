@@ -2,7 +2,6 @@ import "server-only";
 import { after } from "next/server";
 import {
   enqueueIngestion,
-  failDocument,
   processIngestionJob,
   retrieveForChatbot,
   type RetrievedChunk,
@@ -28,12 +27,9 @@ export function getEmbedder(): { embedder: Embedder | null; problem: string | nu
  * On a multi-instance deployment, move this to a queue worker (e.g. a Neon Function on a cron).
  */
 export async function startIngestion(doc: { id: string; organization_id: string }): Promise<void> {
-  const { embedder, problem } = getEmbedder();
+  // Without an embedding provider the document is still chunked and stays searchable by keywords.
+  const { embedder } = getEmbedder();
   const jobId = await trusted((db) => enqueueIngestion(db, doc));
-  if (!embedder) {
-    await trusted((db) => failDocument(db, doc.id, doc.organization_id, problem ?? "No embedding provider is configured"));
-    return;
-  }
   after(async () => {
     try {
       await processIngestionJob(trusted, jobId, { embedder });

@@ -14,7 +14,7 @@ export default async function OrgKnowledgePage({ params }: { params: Promise<{ o
     asUser(async (db) => ({ org: await getOrganization(db, orgId), sources: await listKnowledgeSources(db, orgId) })),
   );
   const canEdit = org.role === "owner" || org.role === "admin";
-  const { embedder, problem } = getEmbedder();
+  const { embedder } = getEmbedder();
   const describe = (s: (typeof sources)[number]) =>
     `${s.ready_count}/${s.document_count} ready · ${
       s.scope === "global" ? `shared, assigned to ${s.assigned_chatbots} chatbot${s.assigned_chatbots === 1 ? "" : "s"}` : `only ${s.chatbot_name ?? "one chatbot"}`
@@ -28,7 +28,7 @@ export default async function OrgKnowledgePage({ params }: { params: Promise<{ o
         Shared sources can be assigned to any chatbot in this organization. A chatbot never sees shared knowledge unless it is assigned.
       </p>
       <p className={`mt-2 text-sm ${embedder ? "text-zinc-500" : "text-amber-700 dark:text-amber-500"}`}>
-        {embedder ? `Embeddings: ${embedder.modelId}` : `Documents can't be processed yet: ${problem}`}
+        {embedder ? `Embeddings: ${embedder.modelId}` : "No embedding provider is configured, so documents are searchable by keywords only. Add one, then choose Reprocess on a document for meaning-based search."}
       </p>
 
       <Section title="Shared sources">

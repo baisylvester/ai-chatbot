@@ -61,9 +61,7 @@ export async function runMaintenance(
     ).rows.map((r) => r.id),
   );
   const processed = { succeeded: 0, failed: 0, skipped: 0 };
-  if (deps.embedder) {
-    for (const id of queued) processed[await processIngestionJob(trusted, id, { embedder: deps.embedder })]++;
-  }
+  for (const id of queued) processed[await processIngestionJob(trusted, id, { embedder: deps.embedder })]++;
 
   const purged = await trusted((db) => purgeExpiredData(db));
   // Calls whose browser never reported the end: close them and record (capped) usage.

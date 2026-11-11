@@ -49,7 +49,7 @@ describe("knowledge file upload authorization and ingestion", () => {
   it("stores a file in the selected source and reports a missing embedding provider accurately", async () => {
     const result = await uploadFileAction(null, upload());
     expect(mocks.addDocument).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ sourceId: "source-a", kind: "file", title: "hours", content: "Extracted knowledge text" }));
-    expect(result).toMatchObject({ sourceId: "source-a", ok: expect.stringContaining("Configure an embedding provider") });
+    expect(result).toMatchObject({ sourceId: "source-a", ok: expect.stringContaining("keywords only") });
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/chatbots/bot-a");
   });
 

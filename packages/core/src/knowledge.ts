@@ -283,12 +283,13 @@ const vectorLiteral = (v: number[]) => `[${v.map((x) => (Number.isFinite(x) ? x 
 const EMBED_BATCH = 64;
 
 export interface IngestionDeps {
-  embedder: Embedder;
+  /** Null when no embedding provider is configured: chunks are stored without vectors and found by keyword search only. */
+  embedder: Embedder | null;
   fetchPage?: (url: string) => Promise<FetchedPage>;
 }
 
 /**
- * Runs one ingestion job: fetch (URLs), chunk, embed, and replace the document's chunks atomically.
+ * Runs one ingestion job: fetch (URLs), chunk, embed (when an embedder is configured), and replace the document's chunks atomically.
  * Network work happens outside transactions. Safe to retry: a failed job can be re-run.
  */
 export async function processIngestionJob(trusted: TrustedRunner, jobId: string, deps: IngestionDeps): Promise<"succeeded" | "failed" | "skipped"> {
@@ -328,8 +329,8 @@ export async function processIngestionJob(trusted: TrustedRunner, jobId: string,
 
     const chunks = await chunkDocument(content);
     if (chunks.length === 0) throw new ExtractionError("The document has no text");
-    const vectors: number[][] = [];
-    for (let i = 0; i < chunks.length; i += EMBED_BATCH) {
+    const vectors: (number[] | null)[] = deps.embedder ? [] : chunks.map(() => null);
+    for (let i = 0; deps.embedder && i < chunks.length; i += EMBED_BATCH) {
       // The document title gives each chunk context ("Store hours" + a passage that never says "hours").
       vectors.push(...(await deps.embedder.embedDocuments(chunks.slice(i, i + EMBED_BATCH).map((c) => `${title}\n\n${c.content}`))));
     }
@@ -358,18 +359,18 @@ export async function processIngestionJob(trusted: TrustedRunner, jobId: string,
           job.organization_id,
           doc.knowledge_source_id,
           doc.id,
-          deps.embedder.modelId,
+          deps.embedder?.modelId ?? null,
           title,
           chunks.map((c) => c.index),
           chunks.map((c) => c.content),
-          vectors.map(vectorLiteral),
+          vectors.map((v) => (v ? vectorLiteral(v) : null)),
           chunks.map((c) => c.tokenEstimate),
         ],
       );
       await db.query(
         `update knowledge_documents set status = 'ready', error = null, chunk_count = $1, embedding_model = $2, processed_at = now(), updated_at = now()
          where id = $3 and organization_id = $4`,
-        [chunks.length, deps.embedder.modelId, doc.id, job.organization_id],
+        [chunks.length, deps.embedder?.modelId ?? null, doc.id, job.organization_id],
       );
       await db.query("update ingestion_jobs set status = 'succeeded', finished_at = now() where id = $1", [job.id]);
     });

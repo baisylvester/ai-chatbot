@@ -87,7 +87,7 @@ export default async function ChatbotPage({ params }: { params: Promise<{ chatbo
             <h3 className="font-medium">Add knowledge to this chatbot</h3>
             <p className="mb-4 mt-1 text-sm text-zinc-500">Upload a document directly into an existing source, or create a source with your first upload.</p>
             {!embedder && <p className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
-              An embedding provider is needed to make documents searchable. You can upload and save files now; configure a provider, then open the source and choose Reprocess.
+              No embedding provider is configured, so documents are searchable by keywords only. Add one, then choose Reprocess on a document for meaning-based search.
             </p>}
             <KnowledgeUpload action={uploadFileAction} chatbotId={bot.id} sources={knowledge.own.map(({ id, name }) => ({ id, name }))} />
           </Card>
