@@ -16,6 +16,7 @@ import {
   setGlobalSourceAssignment,
 } from "@chatbot/core";
 import { detectFormat, ExtractionError, extractText, MAX_UPLOAD_BYTES } from "@chatbot/rag-engine";
+import { MAX_EXTRACTED_CHARS, normalizeText } from "@chatbot/rag-engine/extract-shared";
 import { toActionError, type ActionState } from "@/lib/action-result";
 import { getEmbedder, startIngestion } from "@/lib/knowledge";
 import { asUser } from "@/lib/session";
@@ -111,14 +112,27 @@ export async function uploadFileAction(_prev: ActionState, fd: FormData): Promis
       }
     });
     // Extraction is quick and needs the bytes, so it happens now; chunking and embedding run in the background.
-    const content = await extractText(new Uint8Array(await file.arrayBuffer()), format);
+    let content: string;
+    let sizeBytes = file.size;
+    if (process.env.CLOUDFLARE_WORKERS === "1") {
+      const extracted = fd.get("extractedContent");
+      sizeBytes = Number(fd.get("fileSizeBytes"));
+      if (typeof extracted !== "string" || !extracted.trim() || extracted.length > MAX_EXTRACTED_CHARS
+        || !Number.isInteger(sizeBytes) || sizeBytes < 1 || sizeBytes > MAX_UPLOAD_BYTES) {
+        return { error: "Read the file in your browser before uploading. Reload this page and try again." };
+      }
+      // Admins can also paste arbitrary text. Browser extraction is input, never an authorization signal.
+      content = normalizeText(extracted);
+    } else {
+      content = await extractText(new Uint8Array(await file.arrayBuffer()), format);
+    }
     const title = str(fd, "title") || file.name.replace(/\.[^.]+$/, "");
     // Source creation and document insertion share one transaction: a failed insert leaves no empty source.
     const doc = await asUser(async (db) => {
       const destination = sourceId || (await createKnowledgeSource(db, {
         chatbotId, name: str(fd, "sourceName") || "Uploaded files",
       })).id;
-      return addDocument(db, { sourceId: destination, kind: "file", title, content, mimeType: file.type || undefined, sizeBytes: file.size });
+      return addDocument(db, { sourceId: destination, kind: "file", title, content, mimeType: file.type || undefined, sizeBytes });
     });
     await startIngestion(doc);
     revalidatePath(`/knowledge/${doc.knowledge_source_id}`);

@@ -2,7 +2,7 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "ai-chatbot",
   "account_id": "f3563405b99e40a41ff1eef2741d6aad",
-  "main": ".open-next/worker.js",
+  "main": "cloudflare-worker.mjs",
   "compatibility_date": "2026-11-01",
   "compatibility_flags": [
     "nodejs_compat",
@@ -10,11 +10,13 @@
   ],
   "workers_dev": true,
   "preview_urls": false,
+  "triggers": { "crons": ["*/10 * * * *"] },
   "assets": {
     "directory": ".open-next/assets",
     "binding": "ASSETS"
   },
   "vars": {
+    "NEXT_PUBLIC_BROWSER_EXTRACTION": "1",
     "CLOUDFLARE_WORKERS": "1",
     "NEXT_PUBLIC_PLATFORM_URL": "https://ai-chatbot.ai-edu-web.workers.dev",
     "NEXT_PUBLIC_SUPABASE_URL": "https://gmuqwpfllgmvhzhehepp.supabase.co",

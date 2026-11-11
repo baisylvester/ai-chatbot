@@ -24,3 +24,4 @@ tests/e2e/playwright-report/
 .open-next/
 .wrangler/
 .dev.vars*
+apps/dashboard/public/knowledge-parser.js

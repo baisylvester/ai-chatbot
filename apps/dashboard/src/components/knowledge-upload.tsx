@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useActionState, useEffect, useId, useRef, useState, useTransition, type FormEvent } from "react";
 import { detectFormat, MAX_UPLOAD_BYTES, UPLOAD_ACCEPT } from "@chatbot/rag-engine/formats";
 import type { ActionState } from "@/lib/action-result";
+import { extractInBrowser } from "@/lib/browser-extraction";
 
 type UploadAction = (state: ActionState, data: FormData) => Promise<ActionState>;
 
@@ -57,7 +58,20 @@ export function KnowledgeUpload({ action, sourceId, chatbotId, sources = [] }: {
     setFeedbackVisible(true);
     const data = new FormData(event.currentTarget);
     data.set("file", file, file.name);
-    startTransition(() => formAction(data));
+    startTransition(async () => {
+      try {
+        if (process.env.NEXT_PUBLIC_BROWSER_EXTRACTION === "1") {
+          const text = await extractInBrowser(file);
+          data.set("extractedContent", text);
+          data.set("fileSizeBytes", String(file.size));
+          // The original binary stays in the browser. Only metadata and extracted text are sent.
+          data.set("file", new File(["."], file.name, { type: file.type }));
+        }
+        formAction(data);
+      } catch (error) {
+        setError(error instanceof Error ? error.message : "Could not read this file.");
+      }
+    });
   }
 
   const inputClass = "rounded-md border border-zinc-300 bg-transparent px-3 py-2 dark:border-zinc-700";

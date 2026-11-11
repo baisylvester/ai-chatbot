@@ -25,6 +25,8 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   turbopack: { root: workspaceRoot },
   outputFileTracingRoot: workspaceRoot,
+  // Next builds on Node, where pg's optional Workers transport is not executed.
+  outputFileTracingIncludes: { "/*": ["./node_modules/pg-cloudflare/dist/**/*"] },
   // Knowledge file uploads go through server actions (10 MB extraction limit plus form overhead).
   experimental: { serverActions: { bodySizeLimit: "11mb" } },
   async headers() {
