@@ -48,7 +48,9 @@ export async function GET(request: Request) {
     "default-src 'self'",
     "script-src 'self'",
     "style-src 'self' 'unsafe-inline'",
-    "connect-src 'self'",
+    // Realtime voice calls connect straight to the provider (SDP over HTTPS, then WebRTC media).
+    "connect-src 'self' https://api.openai.com",
+    "media-src 'self' blob:",
     "img-src 'self' data:",
     "base-uri 'none'",
     "form-action 'none'",
@@ -68,6 +70,8 @@ export async function GET(request: Request) {
       "Content-Security-Policy": csp,
       "Referrer-Policy": "strict-origin-when-cross-origin",
       "X-Content-Type-Options": "nosniff",
+      // The host page must also grant the microphone with <iframe allow="microphone">.
+      "Permissions-Policy": "microphone=(self)",
       "Cache-Control": "no-store",
     },
   });

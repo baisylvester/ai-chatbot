@@ -87,6 +87,14 @@ textarea {
 }
 .send { border: 0; border-radius: 10px; padding: 0 14px; background: var(--aic-accent); color: var(--aic-accent-text); font-weight: 600; }
 .send:disabled { opacity: .5; cursor: default; }
+.title { display: flex; flex-direction: column; min-width: 0; }
+.call-status { font-size: 12px; color: var(--aic-muted); }
+.call-status:empty { display: none; }
+.icon-btn[aria-pressed="true"] { color: var(--aic-text); background: var(--aic-bubble); }
+.mic { border: 1px solid var(--aic-border); background: transparent; color: var(--aic-text); border-radius: 10px; width: 40px; display: grid; place-items: center; }
+.mic svg { width: 18px; height: 18px; }
+.mic.recording { background: #dc2626; border-color: #dc2626; color: #fff; }
+@media (prefers-reduced-motion: no-preference) { .mic.recording { animation: aic-pulse 1.2s ease-in-out infinite; } @keyframes aic-pulse { 50% { opacity: .6; } } }
 .footer { text-align: center; font-size: 11px; color: var(--aic-muted); padding: 0 0 8px; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 

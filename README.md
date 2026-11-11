@@ -4,7 +4,7 @@ A multi-tenant AI chatbot platform. You build the chatbot engine once, then any 
 
 ## Status
 
-**Phases 1–5 (Foundation, Core platform, AI engine, RAG engine, Universal embedding) are done.** Phases 6–8 (voice, analytics, production readiness) haven't started. Nothing on this page should be read as working beyond what this table lists.
+**Phases 1–6 (Foundation, Core platform, AI engine, RAG engine, Universal embedding, Voice) are done.** Phases 7–8 (admin analytics, production readiness) haven't started. Nothing on this page should be read as working beyond what this table lists.
 
 | Area | State |
 |---|---|
@@ -21,12 +21,14 @@ A multi-tenant AI chatbot platform. You build the chatbot engine once, then any 
 | `packages/rag-engine`: PDF/DOCX/TXT/Markdown/HTML extraction, URL import with SSRF protection, LangChain chunking, embeddings (OpenAI, Gemini, Neon AI Gateway; dev-only mock), Reciprocal Rank Fusion | Done. 18 unit tests, including a real DOCX and a PDF |
 | Knowledge in `core`: global and per-chatbot sources, explicit assignment, documents, duplicate detection, background ingestion jobs, reprocessing, hybrid retrieval (pgvector + full text) scoped per chatbot, citations stored with replies; migration 0005 | Done. 8 integration tests on a Neon branch |
 | Dashboard knowledge screens (org knowledge, source page with upload/URL/text, chatbot assignments) and sources shown in Test chat | Done. Tested end to end with the mock embedder and mock LLM. **Not yet run with real embeddings** |
-| `packages/embed-sdk`: one framework-free `embed.js` (16.6 KB, 6 KB gzipped) with script auto-mount, `<ai-chatbot>` Web Component (Shadow DOM), and an iframe helper with validated `postMessage` | Done. 4 unit tests. Tested in the browser on a separate origin with hostile CSS |
+| `packages/embed-sdk`: one framework-free `embed.js` (28 KB, 9.6 KB gzipped, including voice) with script auto-mount, `<ai-chatbot>` Web Component (Shadow DOM), and an iframe helper with validated `postMessage` | Done. 4 unit tests. Tested in the browser on a separate origin with hostile CSS |
 | Public widget API (`/api/v1/embed/config`, `/sessions`, `/messages`): CORS, Origin allowlist re-checked on every request, HMAC session tokens (2 h), rate limits, generic public errors | Done. 7 integration tests on a Neon branch |
 | iframe page (`/embed/frame`) with CSP `frame-ancestors` from the allowed domains | Done. Tested allowed and blocked framing in the browser |
 | Server-to-server REST API (`POST /api/v1/chat`) with private API keys (hashed, revocable, organization-scoped); JSON or SSE | Done. Tested create, use, stream, revoke |
 | `packages/react` wrapper, `apps/embed-demo` plain HTML demo site, dashboard install panel with copy buttons and API key management | Done |
-| Voice, analytics, production hardening | Not started (Phases 6–8) |
+| `packages/voice-engine`: speech-to-text, text-to-speech (OpenAI, ElevenLabs, dev mock) and OpenAI Realtime client secrets, with declared capabilities and a voice catalog | Done. 13 unit tests that check request formats against mocked HTTP |
+| Voice in `core` and the widget API: standard mode (tap to talk → chat with knowledge → reply read aloud) and realtime mode (WebRTC call; a `search_knowledge` tool scoped to the chatbot; transcript saved when the call ends); voice settings per chatbot; usage by kind (stt/tts/realtime); migration 0008 | Done. 4 integration tests on a Neon branch. Tested in the browser with the mock provider: auto read-aloud, mute, blocked-microphone message, realtime unavailable message. **Not yet tested with real OpenAI/ElevenLabs keys or a real microphone** |
+| Admin analytics, production hardening | Not started (Phases 7–8) |
 
 ## Stack change: Neon instead of Supabase
 
@@ -113,6 +115,25 @@ Security notes:
 - Widget sessions are signed with `EMBED_TOKEN_SECRET`, which must be 32+ characters and set in production.
 - Rate limits are in memory per server process until a shared store is added.
 
+## Voice
+
+Each chatbot has a **Voice** section in its settings:
+
+| Mode | How it works | Needs |
+|---|---|---|
+| Off | Text only | — |
+| Standard | The visitor taps the mic, speech is transcribed, and the normal chat (knowledge, citations, fallback) answers. The reply is read aloud, and the visitor can mute it | Speech-to-text and text-to-speech providers: OpenAI (`OPENAI_API_KEY`) or ElevenLabs (`ELEVENLABS_API_KEY` plus a voice ID) |
+| Realtime | A live voice call. The browser connects straight to OpenAI Realtime over WebRTC with a short-lived client secret minted by the server. The model looks things up through `search_knowledge`, which runs on the platform and only searches that chatbot's knowledge. The transcript is saved to the conversation when the call ends | `OPENAI_API_KEY` |
+
+Notes:
+- **Keys:** permanent API keys never reach the browser. Realtime client secrets live for 60 seconds and are only good for starting one call.
+- **Microphone:** the visitor's browser asks for permission. If it's blocked, the widget explains how to allow it and typing still works.
+- **iframes:** the host page must grant the microphone with `allow="microphone"` (the dashboard snippet includes it).
+- **Disconnects:** a dropped call is reported in the chat and can be restarted. Interruptions (barge-in) are handled by the realtime model's voice activity detection.
+- **Development:** `VOICE_MOCK=1` enables a mock provider (a fixed transcript and a test tone) for development only.
+- **Usage:** recorded per request: speech-to-text (audio seconds reported by the browser), text-to-speech (characters) and realtime (call duration).
+- **Settings delay:** visitors see a settings change within about a minute, because the public config is cached.
+
 ## Layout
 
 ```text
@@ -123,14 +144,14 @@ packages/core         Tenant services and conversation turns
 packages/ai-providers LangChain.js provider adapters
 packages/ai-engine    Prompt building, streaming, fallback
 packages/rag-engine   Extraction, URL import, chunking, embeddings, ranking
-packages/embed-sdk    embed.js: script snippet, <ai-chatbot> Web Component, iframe helper
+packages/embed-sdk    embed.js: script snippet, <ai-chatbot> Web Component, iframe helper, voice UI
+packages/voice-engine Speech-to-text, text-to-speech, realtime voice adapters
 packages/react        React / Next.js wrapper
 apps/embed-demo       Plain HTML demo site on its own origin (port 4020)
 tools/                Development helpers (mock LLM server, API key setup)
 knowledge_sources     Local source documents waiting to be ingested (git-ignored)
 ```
 
-Planned packages: `voice-engine`.
 
 ## Getting started
 

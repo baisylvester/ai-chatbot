@@ -15,7 +15,7 @@ import type { DbClient } from "@chatbot/database";
 import { isOriginAllowed, publicChatbotIdSchema, type ChatbotSettings } from "@chatbot/shared";
 import { z } from "zod";
 import { DomainError, mapDbError, notFound } from "./errors.ts";
-import { getOrganization, type Chatbot } from "./services.ts";
+import { getOrganization, normalizeChatbot, type Chatbot } from "./services.ts";
 
 export class EmbedError extends Error {
   readonly code: "unavailable" | "origin_not_allowed" | "invalid_token" | "session_expired" | "unauthorized";
@@ -96,6 +96,8 @@ export interface PublicChatbotConfig {
   suggestedQuestions: string[];
   theme: ChatbotSettings["theme"];
   position: ChatbotSettings["position"];
+  /** Only what the widget needs: which voice UI to show. Providers and models stay private. */
+  voice: { mode: ChatbotSettings["voice"]["mode"]; autoSpeak: boolean };
 }
 
 export function toPublicConfig(bot: Chatbot): PublicChatbotConfig {
@@ -107,11 +109,12 @@ export function toPublicConfig(bot: Chatbot): PublicChatbotConfig {
     suggestedQuestions: s.suggestedQuestions,
     theme: s.theme,
     position: s.position,
+    voice: { mode: s.voice.mode, autoSpeak: s.voice.autoSpeak },
   };
 }
 
-async function loadBot(db: DbClient, where: string, value: string): Promise<(Chatbot & { domains: string[] }) | null> {
-  return (
+export async function loadBot(db: DbClient, where: string, value: string): Promise<(Chatbot & { domains: string[] }) | null> {
+  const row = (
     (
       await db.query<Chatbot & { domains: string[] }>(
         `select c.id, c.organization_id, c.workspace_id, c.website_id, c.public_id, c.status, s.settings,
@@ -122,6 +125,7 @@ async function loadBot(db: DbClient, where: string, value: string): Promise<(Cha
       )
     ).rows[0] ?? null
   );
+  return row ? normalizeChatbot(row) : null;
 }
 
 /**

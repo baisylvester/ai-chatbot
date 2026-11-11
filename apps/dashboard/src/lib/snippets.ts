@@ -20,7 +20,7 @@ export function embedSnippets(opts: { platformUrl: string; chatbotId: string; po
   src="${api}/embed/frame?chatbotId=${id}"
   title="Chat"
   style="width:100%;max-width:420px;height:560px;border:0;border-radius:12px"
-  allow="clipboard-write"></iframe>`,
+  allow="microphone; clipboard-write"></iframe>`,
     react: `// npm: copy packages/react from the platform repo, or use the script snippet.
 "use client";
 import { AIChatbot } from "@chatbot/react";

@@ -62,7 +62,7 @@ function mountIframe(opts: { chatbotId: string; apiUrl?: string; target: HTMLEle
     frame.title = "Chat";
     frame.style.cssText = `width:100%;height:${opts.height ?? 560}px;border:0;border-radius:12px;`;
     frame.setAttribute("sandbox", "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox");
-    frame.setAttribute("allow", "clipboard-write");
+    frame.setAttribute("allow", "microphone; clipboard-write");
     window.addEventListener("message", (event) => {
       if (event.origin !== platformOrigin || event.source !== frame.contentWindow) return;
       const data = event.data as { source?: string; type?: string; height?: number } | null;

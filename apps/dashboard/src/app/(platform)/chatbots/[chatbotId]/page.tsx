@@ -7,6 +7,7 @@ import { CopyBlock } from "@/components/copy-block";
 import { Playground } from "@/components/playground";
 import { embedSnippets } from "@/lib/snippets";
 import { ProviderSelect, ProviderStatus } from "@/components/provider-select";
+import { VoiceSettingsFields } from "@/components/voice-settings";
 import { Breadcrumbs, Card, Section } from "@/components/ui";
 import { orNotFound } from "@/lib/load";
 import { asUser } from "@/lib/session";
@@ -178,6 +179,7 @@ export default async function ChatbotPage({ params }: { params: Promise<{ chatbo
                 <textarea name="suggestedQuestions" defaultValue={s.suggestedQuestions.join("\n")} rows={3} className={selectClass} />
                 <span className="text-xs text-zinc-500">One per line, up to 6</span>
               </label>
+              <VoiceSettingsFields voice={s.voice} />
             </ActionForm>
           ) : (
             <dl className="grid gap-2 text-sm sm:grid-cols-2">

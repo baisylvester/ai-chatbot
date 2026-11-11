@@ -19,6 +19,23 @@ export const modelRefSchema = z.object({
 });
 export type ModelRef = z.infer<typeof modelRefSchema>;
 
+/**
+ * Voice settings. "standard" = record → speech-to-text → normal chat (with knowledge) → text-to-speech.
+ * "realtime" = live voice call (WebRTC) with a realtime model that can search the knowledge base.
+ */
+export const voiceSettingsSchema = z.object({
+  mode: z.enum(["off", "standard", "realtime"]).default("off"),
+  sttProvider: z.enum(["openai", "elevenlabs", "mock"]).default("openai"),
+  ttsProvider: z.enum(["openai", "elevenlabs", "mock"]).default("openai"),
+  /** Provider voice id (OpenAI: alloy, coral, …; ElevenLabs: a voice id). */
+  ttsVoice: z.string().trim().min(1).max(100).default("alloy"),
+  /** Read replies aloud automatically in standard mode (the visitor can mute). */
+  autoSpeak: z.boolean().default(true),
+  realtimeModel: z.string().trim().min(1).max(100).default("gpt-realtime"),
+  realtimeVoice: z.string().trim().min(1).max(100).default("marin"),
+});
+export type VoiceSettings = z.infer<typeof voiceSettingsSchema>;
+
 export const chatbotSettingsSchema = z.object({
   name: z.string().trim().min(1).max(120),
   systemPrompt: z.string().max(8000).default(""),
@@ -32,6 +49,7 @@ export const chatbotSettingsSchema = z.object({
   fallbacks: z.array(modelRefSchema).max(2).default([]),
   position: z.enum(["bottom-right", "bottom-left"]).default("bottom-right"),
   theme: z.enum(["light", "dark", "auto"]).default("auto"),
+  voice: voiceSettingsSchema.default(voiceSettingsSchema.parse({})),
 });
 export type ChatbotSettings = z.infer<typeof chatbotSettingsSchema>;
 

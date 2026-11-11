@@ -268,18 +268,29 @@ const chatbotSelect = `
   select c.id, c.organization_id, c.workspace_id, c.website_id, c.public_id, c.status, s.settings
   from chatbots c join chatbot_settings s on s.chatbot_id = c.id`;
 
+/**
+ * Settings are stored as JSON and new fields are added over time; parsing on read fills defaults for
+ * older rows (e.g. `voice`, `fallbacks`). Unparseable settings keep the stored values plus defaults.
+ */
+export function normalizeChatbot<T extends Chatbot>(row: T): T {
+  const parsed = chatbotSettingsSchema.safeParse(row.settings ?? {});
+  if (parsed.success) return { ...row, settings: parsed.data };
+  const defaults = chatbotSettingsSchema.parse({ name: (row.settings as { name?: string })?.name || "Chatbot", model: "unset" });
+  return { ...row, settings: { ...defaults, ...(row.settings as object) } as ChatbotSettings };
+}
+
 export async function listChatbots(db: DbClient, websiteId: string): Promise<Chatbot[]> {
   return (
     await db.query<Chatbot>(`${chatbotSelect} where c.website_id = $1 order by c.created_at`, [
       parse(id, websiteId),
     ])
-  ).rows;
+  ).rows.map(normalizeChatbot);
 }
 
 export async function getChatbot(db: DbClient, chatbotId: string): Promise<Chatbot> {
   const row = (await db.query<Chatbot>(`${chatbotSelect} where c.id = $1`, [parse(id, chatbotId)])).rows[0];
   if (!row) throw notFound("Chatbot");
-  return row;
+  return normalizeChatbot(row);
 }
 
 export async function createChatbot(

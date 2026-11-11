@@ -7,6 +7,16 @@ export interface PublicConfig {
   suggestedQuestions: string[];
   theme: "light" | "dark" | "auto";
   position: "bottom-right" | "bottom-left";
+  voice?: { mode: "off" | "standard" | "realtime"; autoSpeak: boolean };
+}
+
+export interface RealtimeStart {
+  voiceSessionId: string;
+  clientSecret: string;
+  expiresAt: number;
+  callsUrl: string;
+  model: string;
+  voice: string;
 }
 
 export interface Citation {
@@ -158,6 +168,65 @@ export class ChatClient {
     this.tokenExpires = 0;
     store.remove(`${this.key}:session`);
     store.remove(`${this.key}:history`);
+  }
+
+  /** Calls a session-authenticated endpoint, starting a new session once if the old one expired. */
+  private async authed(path: string, init: RequestInit): Promise<Response> {
+    for (let attempt = 0; ; attempt++) {
+      const token = await this.ensureSession();
+      const headers = new Headers(init.headers);
+      headers.set("Authorization", `Bearer ${token}`);
+      const res = await fetch(`${this.apiUrl}${path}`, { ...init, headers, credentials: "omit" });
+      if (res.status === 401 && attempt === 0) {
+        this.token = null;
+        this.tokenExpires = 0;
+        store.remove(`${this.key}:session`);
+        continue;
+      }
+      if (!res.ok) throw await asApiError(res);
+      return res;
+    }
+  }
+
+  async transcribe(audio: Blob, durationMs: number): Promise<string> {
+    const form = new FormData();
+    form.append("audio", audio, "speech");
+    form.append("durationMs", String(Math.round(durationMs)));
+    const res = await this.authed("/api/v1/embed/voice/transcribe", { method: "POST", body: form });
+    return String(((await res.json()) as { text?: string }).text ?? "");
+  }
+
+  async speak(text: string, signal?: AbortSignal): Promise<Blob> {
+    const res = await this.authed("/api/v1/embed/voice/speech", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+      signal,
+    });
+    return res.blob();
+  }
+
+  async startRealtime(): Promise<RealtimeStart> {
+    const res = await this.authed("/api/v1/embed/voice/realtime", { method: "POST" });
+    return (await res.json()) as RealtimeStart;
+  }
+
+  async realtimeTool(voiceSessionId: string, name: string, args: string): Promise<{ output: string; citations: Citation[] }> {
+    const res = await this.authed("/api/v1/embed/voice/realtime/tool", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ voiceSessionId, name, arguments: args }),
+    });
+    return (await res.json()) as { output: string; citations: Citation[] };
+  }
+
+  async endRealtime(voiceSessionId: string, transcript: { role: "user" | "assistant"; text: string }[], failed = false): Promise<void> {
+    await this.authed("/api/v1/embed/voice/realtime/end", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ voiceSessionId, transcript, failed }),
+      keepalive: true,
+    }).catch(() => undefined);
   }
 
   async send(message: string, handlers: SendHandlers, signal?: AbortSignal): Promise<void> {

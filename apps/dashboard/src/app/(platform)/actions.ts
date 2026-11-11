@@ -98,6 +98,18 @@ function settingsFrom(fd: FormData) {
       str(fd, "fallbackProvider") && str(fd, "fallbackModel")
         ? [{ provider: str(fd, "fallbackProvider"), model: str(fd, "fallbackModel") }]
         : [],
+    // Voice fields exist only on the full settings form; the quick "new chatbot" form keeps defaults.
+    voice: fd.has("voiceMode")
+      ? {
+          mode: str(fd, "voiceMode"),
+          sttProvider: str(fd, "sttProvider"),
+          ttsProvider: str(fd, "ttsProvider"),
+          ttsVoice: str(fd, "ttsVoice"),
+          autoSpeak: fd.get("autoSpeak") === "on",
+          realtimeModel: str(fd, "realtimeModel"),
+          realtimeVoice: str(fd, "realtimeVoice"),
+        }
+      : undefined,
     position: str(fd, "position") || undefined,
     theme: str(fd, "theme") || undefined,
   };

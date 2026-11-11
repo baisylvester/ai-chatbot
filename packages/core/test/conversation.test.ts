@@ -8,6 +8,7 @@ import { AIMessageChunk, type BaseMessage } from "@langchain/core/messages";
 import { ChatGenerationChunk } from "@langchain/core/outputs";
 import { FakeStreamingChatModel } from "@langchain/core/utils/testing";
 import type { ModelCandidate } from "@chatbot/ai-engine";
+import { chatbotSettingsSchema } from "@chatbot/shared";
 import { createPool, withTrustedContext, withUserContext } from "@chatbot/database";
 import { migrate } from "@chatbot/database/src/migrate.ts";
 import {
@@ -174,22 +175,15 @@ describe.skipIf(!url)("conversation turns", () => {
 describe("modelCandidates", () => {
   it("lists primary then fallbacks, without duplicates", () => {
     const list = modelCandidates(
-      {
+      chatbotSettingsSchema.parse({
         name: "x",
-        systemPrompt: "",
-        welcomeMessage: "",
-        suggestedQuestions: [],
         provider: "openai",
         model: "a",
-        temperature: 0.3,
-        maxOutputTokens: 256,
         fallbacks: [
           { provider: "openai", model: "a" },
           { provider: "neon-gateway", model: "b" },
         ],
-        position: "bottom-right",
-        theme: "auto",
-      },
+      }),
       {},
     );
     expect(list.map((c) => `${c.provider}:${c.model}`)).toEqual(["openai:a", "neon-gateway:b"]);

@@ -16,6 +16,7 @@
     "@chatbot/database": "workspace:*",
     "@chatbot/rag-engine": "workspace:*",
     "@chatbot/shared": "workspace:*",
+    "@chatbot/voice-engine": "workspace:*",
     "@neon/auth": "0.8.0",
     "next": "16.4.3",
     "pg": "8.23.1",
@@ -25,13 +26,13 @@
     "zod": "4.6.7"
   },
   "devDependencies": {
+    "@chatbot/embed-sdk": "workspace:*",
     "@tailwindcss/postcss": "4.3.3",
     "@types/node": "24.19.2",
     "@types/pg": "8.23.1",
     "@types/react": "19.1.10",
     "@types/react-dom": "19.1.10",
     "tailwindcss": "4.3.3",
-    "typescript": "5.9.3",
-    "@chatbot/embed-sdk": "workspace:*"
+    "typescript": "5.9.3"
   }
 }
