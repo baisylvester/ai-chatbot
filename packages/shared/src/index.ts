@@ -1,2 +1,2 @@
-export * from "./tenancy";
-export * from "./chatbot";
+export * from "./tenancy.ts";
+export * from "./chatbot.ts";

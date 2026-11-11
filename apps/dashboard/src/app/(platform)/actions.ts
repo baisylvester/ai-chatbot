@@ -92,7 +92,12 @@ function settingsFrom(fd: FormData) {
       .split(/\r?\n/)
       .map((q) => q.trim())
       .filter(Boolean),
-    temperature: fd.get("temperature") === null || str(fd, "temperature") === "" ? undefined : Number(str(fd, "temperature")),
+    temperature: str(fd, "temperature") === "" ? undefined : Number(str(fd, "temperature")),
+    maxOutputTokens: str(fd, "maxOutputTokens") === "" ? undefined : Number(str(fd, "maxOutputTokens")),
+    fallbacks:
+      str(fd, "fallbackProvider") && str(fd, "fallbackModel")
+        ? [{ provider: str(fd, "fallbackProvider"), model: str(fd, "fallbackModel") }]
+        : [],
     position: str(fd, "position") || undefined,
     theme: str(fd, "theme") || undefined,
   };

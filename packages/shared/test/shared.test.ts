@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chunkText, createOrganizationSchema, domainSchema, isOriginAllowed, publicChatbotIdSchema } from "../src";
+import { chunkText, createOrganizationSchema, domainSchema, isOriginAllowed, publicChatbotIdSchema } from "../src/index.ts";
 
 describe("slug and organization validation", () => {
   it("accepts a valid organization", () => {

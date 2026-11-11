@@ -12,12 +12,15 @@
   "dependencies": {
     "@chatbot/database": "workspace:*",
     "@chatbot/shared": "workspace:*",
-    "zod": "4.6.7"
+    "zod": "4.6.7",
+    "@chatbot/ai-engine": "workspace:*",
+    "@chatbot/ai-providers": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "24.19.2",
     "@types/pg": "8.23.1",
     "typescript": "5.9.3",
-    "vitest": "4.1.12"
+    "vitest": "4.1.12",
+    "@langchain/core": "1.3.0"
   }
 }

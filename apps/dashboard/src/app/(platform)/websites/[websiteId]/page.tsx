@@ -1,5 +1,6 @@
 import { getOrganization, getWebsite, getWorkspace, listChatbots } from "@chatbot/core";
 import { ActionForm, Field } from "@/components/action-form";
+import { ProviderSelect } from "@/components/provider-select";
 import { Breadcrumbs, Card, ItemList, Section } from "@/components/ui";
 import { orNotFound } from "@/lib/load";
 import { asUser } from "@/lib/session";
@@ -74,16 +75,7 @@ export default async function WebsitePage({ params }: { params: Promise<{ websit
             <ActionForm action={createChatbotAction} submitLabel="Create chatbot">
               <input type="hidden" name="websiteId" value={site.id} />
               <Field label="Name" name="name" placeholder="Support assistant" />
-              <label className="flex flex-col gap-1 text-sm">
-                <span className="font-medium">Provider</span>
-                <select name="provider" defaultValue="openai" className="rounded-md border border-zinc-300 bg-transparent px-2 py-1.5 dark:border-zinc-700">
-                  <option value="openai">OpenAI</option>
-                  <option value="anthropic">Anthropic</option>
-                  <option value="gemini">Google Gemini</option>
-                  <option value="deepseek">DeepSeek</option>
-                  <option value="openai-compatible">OpenAI-compatible</option>
-                </select>
-              </label>
+              <ProviderSelect name="provider" label="Provider" />
               <Field label="Model" name="model" placeholder="gpt-4.1-mini" />
             </ActionForm>
           </Card>

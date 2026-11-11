@@ -1,6 +1,9 @@
 import { headers } from "next/headers";
 import { getChatbot, getOrganization, getWebsite, getWorkspace } from "@chatbot/core";
+import { providerLabels } from "@chatbot/shared";
 import { ActionForm, Field } from "@/components/action-form";
+import { Playground } from "@/components/playground";
+import { ProviderSelect, ProviderStatus } from "@/components/provider-select";
 import { Breadcrumbs, Card, Section } from "@/components/ui";
 import { orNotFound } from "@/lib/load";
 import { asUser } from "@/lib/session";
@@ -73,18 +76,12 @@ export default async function ChatbotPage({ params }: { params: Promise<{ chatbo
             <ActionForm action={updateChatbotAction} submitLabel="Save settings" className="grid gap-4 sm:grid-cols-2">
               <input type="hidden" name="chatbotId" value={bot.id} />
               <Field label="Name" name="name" defaultValue={s.name} />
-              <label className="flex flex-col gap-1 text-sm">
-                <span className="font-medium">Provider</span>
-                <select name="provider" defaultValue={s.provider} className={selectClass}>
-                  <option value="openai">OpenAI</option>
-                  <option value="anthropic">Anthropic</option>
-                  <option value="gemini">Google Gemini</option>
-                  <option value="deepseek">DeepSeek</option>
-                  <option value="openai-compatible">OpenAI-compatible</option>
-                </select>
-              </label>
+              <ProviderSelect name="provider" label="Provider" defaultValue={s.provider} />
               <Field label="Model" name="model" defaultValue={s.model} />
               <Field label="Temperature" name="temperature" type="number" defaultValue={s.temperature} hint="0 to 2" />
+              <Field label="Max output tokens" name="maxOutputTokens" type="number" defaultValue={s.maxOutputTokens} hint="64 to 8192" />
+              <ProviderSelect name="fallbackProvider" label="Fallback provider" defaultValue={s.fallbacks[0]?.provider ?? ""} allowNone />
+              <Field label="Fallback model" name="fallbackModel" defaultValue={s.fallbacks[0]?.model ?? ""} required={false} hint="Used if the main model fails before answering" />
               <label className="flex flex-col gap-1 text-sm">
                 <span className="font-medium">Position</span>
                 <select name="position" defaultValue={s.position} className={selectClass}>
@@ -115,12 +112,25 @@ export default async function ChatbotPage({ params }: { params: Promise<{ chatbo
             </ActionForm>
           ) : (
             <dl className="grid gap-2 text-sm sm:grid-cols-2">
-              <div><dt className="text-zinc-500">Provider / model</dt><dd>{s.provider} / {s.model}</dd></div>
+              <div><dt className="text-zinc-500">Provider / model</dt><dd>{providerLabels[s.provider]} / {s.model}</dd></div>
               <div><dt className="text-zinc-500">Temperature</dt><dd>{s.temperature}</dd></div>
               <div className="sm:col-span-2"><dt className="text-zinc-500">Welcome message</dt><dd>{s.welcomeMessage}</dd></div>
             </dl>
           )}
         </Card>
+      </Section>
+
+      {canEdit && (
+        <Section
+          title="Test chat"
+          description="Talk to this chatbot with its current saved settings. Test conversations are stored and count toward usage."
+        >
+          <Playground chatbotId={bot.id} welcomeMessage={s.welcomeMessage} />
+        </Section>
+      )}
+
+      <Section title="AI providers" description="Credentials live in server environment variables and are never sent to the browser.">
+        <ProviderStatus />
       </Section>
 
       <Section

@@ -10,6 +10,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@chatbot/ai-engine": "workspace:*",
+    "@chatbot/ai-providers": "workspace:*",
     "@chatbot/core": "workspace:*",
     "@chatbot/database": "workspace:*",
     "@chatbot/shared": "workspace:*",

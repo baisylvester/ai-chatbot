@@ -4,7 +4,7 @@ A multi-tenant AI chatbot platform. You build the chatbot engine once, then any 
 
 ## Status
 
-**Phases 1 (Foundation) and 2 (Core platform) are done.** Phases 3–8 haven't started. Nothing on this page should be read as working beyond what this table lists.
+**Phases 1 (Foundation), 2 (Core platform) and 3 (AI engine) are done.** Phases 4–8 haven't started. Nothing on this page should be read as working beyond what this table lists.
 
 | Area | State |
 |---|---|
@@ -15,7 +15,10 @@ A multi-tenant AI chatbot platform. You build the chatbot engine once, then any 
 | `packages/core`: services for organizations, workspaces, websites + allowed domains, chatbots + settings/status, with audit logging | Done. 8 integration tests pass on a throwaway Neon branch, covering isolation, viewer read-only and conflicts |
 | `apps/dashboard`: screens for organizations, workspaces, websites (domains), chatbots (settings, status, embed snippet preview) | Done. Member invitations and editing roles are not built yet |
 | File storage for uploads (S3-compatible bucket) | Not started (Phase 4) |
-| AI providers, LangChain.js, streaming | Not started (Phase 3) |
+| `packages/ai-providers`: LangChain.js adapters for OpenAI, Anthropic, Gemini, DeepSeek, OpenAI-compatible servers and the Neon AI Gateway. Keys come only from server env; timeouts and retries are built in | Done. 6 unit tests |
+| `packages/ai-engine`: prompt building with injection-resistant platform rules, history trimming, streaming, fallback (only before any text is sent), cancellation | Done. 9 unit tests |
+| Conversation turns (`core`): sessions, messages, usage records (tokens, latency, status, failures); migration 0004 | Done. 7 integration tests on a Neon branch |
+| Dashboard **Test chat** (streaming SSE, owners/admins, 20 messages/min) and provider status | Done. Tested end to end against the local mock LLM. **Not yet tried against a real provider** |
 | Ingestion, embeddings, hybrid retrieval, citations | Not started (Phase 4) |
 | Embed SDK, Web Component, iframe, REST API | Not started (Phase 5) |
 | Voice, analytics, production hardening | Not started (Phases 6–8) |
@@ -41,16 +44,39 @@ Neon is the database (PostgreSQL + pgvector). It does not provide Supabase's Aut
 - `.claude/skills/`: the Neon agent skills `neon`, `neon-postgres`, `neon-auth` and `neon-object-storage`, pinned in `skills-lock.json`. Run `neon skills status` to check them and `neon skills update -y` to update.
 - Branch-first workflow: run `neon checkout <feature> --create` for each feature, and `neon diff` to review schema changes.
 
+## AI providers
+
+Set any of these in `apps/dashboard/.env.local`. The dashboard shows which providers are configured, and a chatbot can only use configured ones.
+
+| Provider | Variables |
+|---|---|
+| OpenAI | `OPENAI_API_KEY` |
+| Anthropic | `ANTHROPIC_API_KEY` |
+| Google Gemini | `GOOGLE_GENERATIVE_AI_API_KEY` |
+| DeepSeek | `DEEPSEEK_API_KEY` (optional `DEEPSEEK_BASE_URL`) |
+| OpenAI-compatible (Ollama, vLLM, LM Studio…) | `OPENAI_COMPATIBLE_BASE_URL`, optional `OPENAI_COMPATIBLE_API_KEY` |
+| Neon AI Gateway | `NEON_AI_GATEWAY_BASE_URL`, `NEON_AI_GATEWAY_TOKEN`. Requires prepaid AI Gateway credits on the Neon account; without them, requests return 403 |
+
+To try the chat without any provider account, run the development mock with `node tools/mock-openai-server.mjs` and set `OPENAI_COMPATIBLE_BASE_URL=http://localhost:4010/v1`. The model `fail` returns HTTP 500, which is useful for testing fallback.
+
+Known limits:
+- The rate limiter is in memory, so it only works for a single server process.
+- API keys are platform-wide for now. Per-organization keys need encrypted storage and are planned for later.
+
 ## Layout
 
 ```text
 apps/dashboard        Next.js admin dashboard
 packages/shared       Shared types and Zod validation (framework-free)
 packages/database     SQL migrations, migration runner, query contexts (RLS)
+packages/core         Tenant services and conversation turns
+packages/ai-providers LangChain.js provider adapters
+packages/ai-engine    Prompt building, streaming, fallback
+tools/                Development helpers (mock LLM server)
 knowledge_sources     Local source documents waiting to be ingested (git-ignored)
 ```
 
-Planned packages: `chatbot-core`, `ai-engine`, `rag-engine`, `ai-providers`, `voice-engine`, `embed-sdk`, `web-component`, `react`.
+Planned packages: `rag-engine`, `voice-engine`, `embed-sdk`, `web-component`, `react`.
 
 ## Getting started
 

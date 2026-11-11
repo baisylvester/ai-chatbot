@@ -1,8 +1,23 @@
 import { z } from "zod";
 
-/** Provider identifiers. Adapters for each live in the ai-providers package (not yet implemented). */
-export const providerSchema = z.enum(["openai", "anthropic", "gemini", "deepseek", "openai-compatible"]);
+/** Provider identifiers. Adapters for each live in the ai-providers package. */
+export const providerSchema = z.enum(["openai", "anthropic", "gemini", "deepseek", "openai-compatible", "neon-gateway"]);
 export type Provider = z.infer<typeof providerSchema>;
+
+export const providerLabels: Record<Provider, string> = {
+  openai: "OpenAI",
+  anthropic: "Anthropic",
+  gemini: "Google Gemini",
+  deepseek: "DeepSeek",
+  "openai-compatible": "OpenAI-compatible",
+  "neon-gateway": "Neon AI Gateway",
+};
+
+export const modelRefSchema = z.object({
+  provider: providerSchema,
+  model: z.string().trim().min(1).max(120),
+});
+export type ModelRef = z.infer<typeof modelRefSchema>;
 
 export const chatbotSettingsSchema = z.object({
   name: z.string().trim().min(1).max(120),
@@ -11,7 +26,10 @@ export const chatbotSettingsSchema = z.object({
   suggestedQuestions: z.array(z.string().trim().min(1).max(160)).max(6).default([]),
   provider: providerSchema.default("openai"),
   model: z.string().trim().min(1).max(120),
-  temperature: z.number().min(0).max(2).default(0.3),
+  temperature: z.number().min(0, "Temperature must be between 0 and 2").max(2, "Temperature must be between 0 and 2").default(0.3),
+  maxOutputTokens: z.number().int().min(64, "Max output tokens must be at least 64").max(8192, "Max output tokens must be at most 8192").default(1024),
+  /** Tried in order when the primary model fails before producing any output. */
+  fallbacks: z.array(modelRefSchema).max(2).default([]),
   position: z.enum(["bottom-right", "bottom-left"]).default("bottom-right"),
   theme: z.enum(["light", "dark", "auto"]).default("auto"),
 });
