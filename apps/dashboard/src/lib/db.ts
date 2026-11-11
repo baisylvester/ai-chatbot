@@ -7,7 +7,11 @@ const globalForDb = globalThis as unknown as { chatbotPool?: pg.Pool };
 
 export function getPool(): pg.Pool {
   if (process.env.CLOUDFLARE_WORKERS === "1") {
-    const url = process.env.DATABASE_URL;
+    // Workers sockets only trust public CAs, and Supabase signs with its own. Hyperdrive holds that CA
+    // and the credentials, so connect through its binding (set by OpenNext on the request context).
+    const context = (globalThis as Record<symbol, unknown>)[Symbol.for("__cloudflare-context__")] as
+      { env?: { HYPERDRIVE?: { connectionString?: string } } } | undefined;
+    const url = context?.env?.HYPERDRIVE?.connectionString ?? process.env.DATABASE_URL;
     if (!url) throw new Error("DATABASE_URL is not set");
     // Workers forbid sharing sockets across requests. Release each transaction's socket,
     // including direct pool.query calls, instead of retaining it in a process-wide pool.

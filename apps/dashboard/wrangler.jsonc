@@ -15,10 +15,11 @@
     "directory": ".open-next/assets",
     "binding": "ASSETS"
   },
+  "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "0056cb81241a426e97cd3eb4eacbcc49" }],
   "vars": {
     "NEXT_PUBLIC_BROWSER_EXTRACTION": "1",
     "CLOUDFLARE_WORKERS": "1",
-    "NEXT_PUBLIC_PLATFORM_URL": "https://ai-chatbot.ai-edu-web.workers.dev",
+    "NEXT_PUBLIC_PLATFORM_URL": "https://ai-chatbot-9wg.pages.dev",
     "NEXT_PUBLIC_SUPABASE_URL": "https://gmuqwpfllgmvhzhehepp.supabase.co",
     "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY": "sb_publishable_qXPpIsUqE7pWJd0cUrSTzw_5W5RIJ9q"
   }

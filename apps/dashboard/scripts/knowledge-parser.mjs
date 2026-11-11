@@ -20,7 +20,7 @@ self.onmessage = async ({ data: file }) => {
       try {
         if (pdf.numPages > MAX_PDF_PAGES) throw Error("The PDF has too many pages.");
         text = (await extractPdfText(pdf, { mergePages: true })).text;
-      } finally { await pdf.destroy(); }
+      } finally { await pdf.loadingTask.destroy(); }
     } else if (format === "docx") {
       assertSafeZip(bytes);
       text = (await mammoth.extractRawText({ arrayBuffer: bytes.buffer })).value;
@@ -41,8 +41,9 @@ self.onmessage = async ({ data: file }) => {
     text = normalizeText(text);
     if (!text) throw Error("No text found. Scanned PDFs need OCR before uploading.");
     if (text.length > MAX_EXTRACTED_CHARS) throw Error("The document has too much text (over 2 million characters).");
-    self.postMessage({ text });
+    self.postMessage({ kind: "knowledge-extraction", text });
   } catch (error) {
-    self.postMessage({ error: error instanceof Error ? error.message : "Could not read this file." });
+    self.postMessage({ kind: "knowledge-extraction", error: error instanceof Error ? error.message : "Could not read this file." });
   }
 };
+

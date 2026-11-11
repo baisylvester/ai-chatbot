@@ -82,3 +82,18 @@ pnpm --filter @chatbot/e2e test:e2e          # widget in Chromium, Firefox, WebK
 ```
 
 `.github/workflows/ci.yml` runs the same checks on every push and pull request.
+
+## Cloudflare Pages (current production: https://ai-chatbot-9wg.pages.dev)
+
+The same OpenNext build runs on Cloudflare Pages (project `ai-chatbot`) and on the Worker `ai-chatbot`, which only exists to run the 10-minute maintenance cron (Pages has no cron triggers).
+
+- **Database:** Workers sockets cannot trust Supabase's private CA, so both connect through the Hyperdrive config `ai-chatbot-db` (binding `HYPERDRIVE`, session pooler, caching disabled, `verify-full` against the uploaded CA `supabase-root-2021`). After a database password change, run `wrangler hyperdrive update` with the new password.
+- **Secrets** (`DATABASE_URL`, `EMBED_TOKEN_SECRET`, `CRON_SECRET`) are set on both with `wrangler pages secret put --project-name ai-chatbot` and `wrangler secret put`.
+- **Deploy** from `apps/dashboard` (stop the dev server's build conflicts first; works on Windows without Developer Mode):
+  ```bash
+  pnpm --filter @chatbot/embed-sdk build
+  pnpm --filter @chatbot/dashboard build:pages
+  pnpm --filter @chatbot/dashboard deploy:pages
+  ```
+  To update the cron Worker from the same build: `wrangler deploy` with `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE` set to any placeholder Postgres URL.
+- **Supabase Auth:** set the Site URL to the Pages URL and allow `https://ai-chatbot-9wg.pages.dev/auth/callback`.

@@ -10,6 +10,8 @@
     "build:cloudflare": "node scripts/build-cloudflare.mjs",
     "preview:cloudflare": "opennextjs-cloudflare preview",
     "deploy:cloudflare": "opennextjs-cloudflare deploy",
+    "build:pages": "node scripts/build-cloudflare.mjs && node scripts/build-pages.mjs",
+    "deploy:pages": "cd cloudflare-pages && wrangler pages deploy --branch main --commit-dirty=true --no-bundle",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

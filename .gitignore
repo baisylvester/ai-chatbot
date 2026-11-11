@@ -23,5 +23,6 @@ tests/e2e/test-results/
 tests/e2e/playwright-report/
 .open-next/
 .wrangler/
+apps/dashboard/cloudflare-pages/
 .dev.vars*
 apps/dashboard/public/knowledge-parser.js
