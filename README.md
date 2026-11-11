@@ -57,6 +57,10 @@ Set any of these in `apps/dashboard/.env.local`. The dashboard shows which provi
 | OpenAI-compatible (Ollama, vLLM, LM Studio…) | `OPENAI_COMPATIBLE_BASE_URL`, optional `OPENAI_COMPATIBLE_API_KEY` |
 | Neon AI Gateway | `NEON_AI_GATEWAY_BASE_URL`, `NEON_AI_GATEWAY_TOKEN`. Requires prepaid AI Gateway credits on the Neon account; without them, requests return 403 |
 
+To add a key without opening the file, run `powershell -NoProfile -ExecutionPolicy Bypass -File toolsset-provider-key.ps1`. It asks which provider the key is for, reads the key with hidden input, and writes it into `apps/dashboard/.env.local`.
+
+**Pending:** the chat hasn't yet been run against a real provider. Once a key is set, try the Test chat on a chatbot that uses that provider.
+
 To try the chat without any provider account, run the development mock with `node tools/mock-openai-server.mjs` and set `OPENAI_COMPATIBLE_BASE_URL=http://localhost:4010/v1`. The model `fail` returns HTTP 500, which is useful for testing fallback.
 
 Known limits:
@@ -72,7 +76,7 @@ packages/database     SQL migrations, migration runner, query contexts (RLS)
 packages/core         Tenant services and conversation turns
 packages/ai-providers LangChain.js provider adapters
 packages/ai-engine    Prompt building, streaming, fallback
-tools/                Development helpers (mock LLM server)
+tools/                Development helpers (mock LLM server, API key setup)
 knowledge_sources     Local source documents waiting to be ingested (git-ignored)
 ```
 
