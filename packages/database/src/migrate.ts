@@ -1,0 +1,67 @@
+/**
+ * Applies pending SQL migrations from ../migrations in filename order, each in its own transaction.
+ * Usage: DATABASE_URL=postgres://... pnpm --filter @chatbot/database migrate
+ * Use the Neon *direct* (non-pooled) connection string for migrations.
+ */
+import { readdir, readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import pg from "pg";
+import { withStrictSsl } from "./client.ts";
+
+const migrationsDir = join(dirname(fileURLToPath(import.meta.url)), "..", "migrations");
+
+export async function migrate(
+  databaseUrl: string,
+  log: (msg: string) => void = console.log,
+  dir: string = migrationsDir,
+): Promise<string[]> {
+  const client = new pg.Client({ connectionString: withStrictSsl(databaseUrl) });
+  await client.connect();
+  const applied: string[] = [];
+  try {
+    await client.query(`
+      create table if not exists public.schema_migrations (
+        name text primary key,
+        applied_at timestamptz not null default now()
+      )`);
+    // Serialize concurrent runners.
+    await client.query("select pg_advisory_lock(727274001)");
+    const done = new Set(
+      (await client.query<{ name: string }>("select name from public.schema_migrations")).rows.map((r) => r.name),
+    );
+    const files = (await readdir(dir)).filter((f) => /^\d{4}_[a-z0-9_]+\.sql$/.test(f)).sort();
+    for (const file of files) {
+      if (done.has(file)) continue;
+      const sql = await readFile(join(dir, file), "utf8");
+      log(`applying ${file}`);
+      try {
+        await client.query("begin");
+        await client.query(sql);
+        await client.query("insert into public.schema_migrations (name) values ($1)", [file]);
+        await client.query("commit");
+      } catch (err) {
+        await client.query("rollback");
+        throw new Error(`Migration ${file} failed: ${(err as Error).message}`, { cause: err });
+      }
+      applied.push(file);
+    }
+    if (applied.length === 0) log("database is up to date");
+    return applied;
+  } finally {
+    await client.query("select pg_advisory_unlock(727274001)").catch(() => undefined);
+    await client.end();
+  }
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  const url = process.env.DATABASE_URL_UNPOOLED ?? process.env.DATABASE_URL;
+  if (!url) {
+    console.error("Set DATABASE_URL_UNPOOLED (preferred) or DATABASE_URL.");
+    process.exit(1);
+  }
+  migrate(url).catch((err: unknown) => {
+    console.error(err instanceof Error ? err.message : err);
+    process.exit(1);
+  });
+}
