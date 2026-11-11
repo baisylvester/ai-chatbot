@@ -2,12 +2,13 @@
  * POST /api/v1/chatbots/:chatbotId/playground
  * Streams a test conversation for organization owners/admins as Server-Sent Events.
  * Body: { message: string, sessionId?: string }
- * Events: session, start, token, done, error (each `data:` is JSON).
+ * Events: session, sources, start, token, done, error (each `data:` is JSON).
  */
 import { z } from "zod";
 import { DomainError, getChatbot, getOrganization, MAX_USER_MESSAGE_CHARS, runConversationTurn, type TurnEvent } from "@chatbot/core";
 import { withTrustedContext, withUserContext } from "@chatbot/database";
 import { getPool } from "@/lib/db";
+import { retrieverFor } from "@/lib/knowledge";
 import { rateLimit } from "@/lib/rate-limit";
 import { getCurrentUser } from "@/lib/session";
 
@@ -27,6 +28,8 @@ function toClientEvent(e: TurnEvent): { event: string; data: unknown } {
   switch (e.type) {
     case "session":
       return { event: "session", data: { sessionId: e.sessionId } };
+    case "sources":
+      return { event: "sources", data: { citations: e.citations } };
     case "start":
       return { event: "start", data: { provider: e.provider, model: e.model } };
     case "token":
@@ -98,6 +101,7 @@ export async function POST(request: Request, ctx: { params: Promise<{ chatbotId:
           createdBy: user.id,
           env: process.env,
           signal: request.signal,
+          retrieve: retrieverFor(chatbot),
         })) {
           const { event, data } = toClientEvent(e);
           send(event, data);

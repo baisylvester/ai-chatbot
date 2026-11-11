@@ -8,12 +8,20 @@ interface Failure {
   error: string;
 }
 
+interface Citation {
+  n: number;
+  title: string;
+  sourceUrl: string | null;
+  snippet: string;
+}
+
 interface Turn {
   role: "user" | "assistant";
   text: string;
   meta?: string;
   error?: string;
   failures?: Failure[];
+  citations?: Citation[];
   streaming?: boolean;
 }
 
@@ -73,6 +81,7 @@ export function Playground({ chatbotId, welcomeMessage }: { chatbotId: string; w
       }
       for await (const { event: name, data } of readSse(res.body)) {
         if (name === "session") setSessionId(data.sessionId as string);
+        else if (name === "sources") updateLast((t) => ({ ...t, citations: data.citations as Citation[] }));
         else if (name === "token") updateLast((t) => ({ ...t, text: t.text + (data.text as string) }));
         else if (name === "done") {
           const usage = data.usage as { inputTokens: number; outputTokens: number } | null;
@@ -123,6 +132,30 @@ export function Playground({ chatbotId, welcomeMessage }: { chatbotId: string; w
               >
                 {t.text || <span className="text-zinc-400">…</span>}
               </div>
+            )}
+            {t.citations && !t.streaming && (
+              <details className="text-xs text-zinc-600 dark:text-zinc-400">
+                <summary className="cursor-pointer">
+                  {t.citations.length} source{t.citations.length === 1 ? "" : "s"} retrieved
+                </summary>
+                <ol className="mt-1 space-y-1">
+                  {t.citations.map((c) => (
+                    <li key={c.n}>
+                      <span className="font-medium">
+                        [{c.n}]{" "}
+                        {c.sourceUrl ? (
+                          <a href={c.sourceUrl} target="_blank" rel="noopener noreferrer" className="underline">
+                            {c.title}
+                          </a>
+                        ) : (
+                          c.title
+                        )}
+                      </span>
+                      <span className="block text-zinc-500">{c.snippet}</span>
+                    </li>
+                  ))}
+                </ol>
+              </details>
             )}
             {t.meta && <span className="text-xs text-zinc-500">{t.meta}</span>}
             {t.error && (

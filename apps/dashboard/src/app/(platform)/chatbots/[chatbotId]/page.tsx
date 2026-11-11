@@ -1,5 +1,6 @@
 import { headers } from "next/headers";
-import { getChatbot, getOrganization, getWebsite, getWorkspace } from "@chatbot/core";
+import Link from "next/link";
+import { getChatbot, getOrganization, getWebsite, getWorkspace, listChatbotKnowledge } from "@chatbot/core";
 import { providerLabels } from "@chatbot/shared";
 import { ActionForm, Field } from "@/components/action-form";
 import { Playground } from "@/components/playground";
@@ -8,6 +9,7 @@ import { Breadcrumbs, Card, Section } from "@/components/ui";
 import { orNotFound } from "@/lib/load";
 import { asUser } from "@/lib/session";
 import { setChatbotStatusAction, updateChatbotAction } from "../../actions";
+import { createSourceAction, setAssignmentAction } from "../../knowledge-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +17,7 @@ const selectClass = "rounded-md border border-zinc-300 bg-transparent px-2 py-1.
 
 export default async function ChatbotPage({ params }: { params: Promise<{ chatbotId: string }> }) {
   const { chatbotId } = await params;
-  const { bot, site, ws, org } = await orNotFound(
+  const { bot, site, ws, org, knowledge } = await orNotFound(
     asUser(async (db) => {
       const bot = await getChatbot(db, chatbotId);
       return {
@@ -23,6 +25,7 @@ export default async function ChatbotPage({ params }: { params: Promise<{ chatbo
         site: await getWebsite(db, bot.website_id),
         ws: await getWorkspace(db, bot.workspace_id),
         org: await getOrganization(db, bot.organization_id),
+        knowledge: await listChatbotKnowledge(db, bot.id),
       };
     }),
   );
@@ -69,6 +72,72 @@ export default async function ChatbotPage({ params }: { params: Promise<{ chatbo
           </div>
         </Section>
       )}
+
+      <Section
+        title="Knowledge"
+        description="The chatbot answers from its own sources and from shared sources assigned to it, and cites them."
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Card>
+            <h3 className="text-sm font-medium">This chatbot&apos;s sources</h3>
+            {knowledge.own.length === 0 ? (
+              <p className="mt-2 text-sm text-zinc-500">None yet.</p>
+            ) : (
+              <ul className="mt-2 space-y-1 text-sm">
+                {knowledge.own.map((s) => (
+                  <li key={s.id}>
+                    <Link href={`/knowledge/${s.id}`} className="underline">
+                      {s.name}
+                    </Link>{" "}
+                    <span className="text-zinc-500">
+                      {s.ready_count}/{s.document_count} ready
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {canEdit && (
+              <div className="mt-3">
+                <ActionForm action={createSourceAction} submitLabel="Add source" variant="subtle">
+                  <input type="hidden" name="chatbotId" value={bot.id} />
+                  <Field label="New source name" name="name" placeholder="Product FAQ" />
+                </ActionForm>
+              </div>
+            )}
+          </Card>
+          <Card>
+            <h3 className="text-sm font-medium">Shared sources</h3>
+            {knowledge.global.length === 0 ? (
+              <p className="mt-2 text-sm text-zinc-500">
+                None in this organization.{" "}
+                <Link href={`/orgs/${org.id}/knowledge`} className="underline">
+                  Manage knowledge
+                </Link>
+              </p>
+            ) : (
+              <ul className="mt-2 space-y-2 text-sm">
+                {knowledge.global.map((s) => (
+                  <li key={s.id} className="flex items-center justify-between gap-2">
+                    <span>
+                      <Link href={`/knowledge/${s.id}`} className="underline">
+                        {s.name}
+                      </Link>{" "}
+                      <span className="text-zinc-500">{s.assigned ? "assigned" : "not assigned"}</span>
+                    </span>
+                    {canEdit && (
+                      <ActionForm action={setAssignmentAction} submitLabel={s.assigned ? "Unassign" : "Assign"} variant="subtle" className="flex">
+                        <input type="hidden" name="chatbotId" value={bot.id} />
+                        <input type="hidden" name="sourceId" value={s.id} />
+                        <input type="hidden" name="assigned" value={s.assigned ? "false" : "true"} />
+                      </ActionForm>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        </div>
+      </Section>
 
       <Section title="Settings">
         <Card>

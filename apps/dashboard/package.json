@@ -14,6 +14,7 @@
     "@chatbot/ai-providers": "workspace:*",
     "@chatbot/core": "workspace:*",
     "@chatbot/database": "workspace:*",
+    "@chatbot/rag-engine": "workspace:*",
     "@chatbot/shared": "workspace:*",
     "@neon/auth": "0.8.0",
     "next": "16.4.3",

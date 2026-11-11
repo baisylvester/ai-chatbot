@@ -1,0 +1,29 @@
+{
+  "name": "@chatbot/rag-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@chatbot/shared": "workspace:*",
+    "@langchain/core": "1.3.0",
+    "@langchain/google-genai": "2.3.4",
+    "@langchain/openai": "1.7.1",
+    "@langchain/textsplitters": "1.0.2",
+    "html-to-text": "10.0.1",
+    "ipaddr.js": "2.5.0",
+    "mammoth": "1.13.0",
+    "unpdf": "1.9.1"
+  },
+  "devDependencies": {
+    "@types/html-to-text": "9.0.4",
+    "@types/node": "24.19.2",
+    "typescript": "5.9.3",
+    "vitest": "4.1.12"
+  }
+}

@@ -4,7 +4,7 @@ A multi-tenant AI chatbot platform. You build the chatbot engine once, then any 
 
 ## Status
 
-**Phases 1 (Foundation), 2 (Core platform) and 3 (AI engine) are done.** Phases 4–8 haven't started. Nothing on this page should be read as working beyond what this table lists.
+**Phases 1–4 (Foundation, Core platform, AI engine, RAG engine) are done.** Phases 5–8 haven't started. Nothing on this page should be read as working beyond what this table lists.
 
 | Area | State |
 |---|---|
@@ -14,12 +14,13 @@ A multi-tenant AI chatbot platform. You build the chatbot engine once, then any 
 | Sign-in: Neon Auth (Managed Better Auth) with email/password, `proxy.ts` route protection and a session check in every page and action | Done. Sign-up and sign-in against Neon Auth haven't been tried by a real user yet |
 | `packages/core`: services for organizations, workspaces, websites + allowed domains, chatbots + settings/status, with audit logging | Done. 8 integration tests pass on a throwaway Neon branch, covering isolation, viewer read-only and conflicts |
 | `apps/dashboard`: screens for organizations, workspaces, websites (domains), chatbots (settings, status, embed snippet preview) | Done. Member invitations and editing roles are not built yet |
-| File storage for uploads (S3-compatible bucket) | Not started (Phase 4) |
 | `packages/ai-providers`: LangChain.js adapters for OpenAI, Anthropic, Gemini, DeepSeek, OpenAI-compatible servers and the Neon AI Gateway. Keys come only from server env; timeouts and retries are built in | Done. 6 unit tests |
 | `packages/ai-engine`: prompt building with injection-resistant platform rules, history trimming, streaming, fallback (only before any text is sent), cancellation | Done. 9 unit tests |
 | Conversation turns (`core`): sessions, messages, usage records (tokens, latency, status, failures); migration 0004 | Done. 7 integration tests on a Neon branch |
 | Dashboard **Test chat** (streaming SSE, owners/admins, 20 messages/min) and provider status | Done. Tested end to end against the local mock LLM. **Not yet tried against a real provider** |
-| Ingestion, embeddings, hybrid retrieval, citations | Not started (Phase 4) |
+| `packages/rag-engine`: PDF/DOCX/TXT/Markdown/HTML extraction, URL import with SSRF protection, LangChain chunking, embeddings (OpenAI, Gemini, Neon AI Gateway; dev-only mock), Reciprocal Rank Fusion | Done. 18 unit tests, including a real DOCX and a PDF |
+| Knowledge in `core`: global and per-chatbot sources, explicit assignment, documents, duplicate detection, background ingestion jobs, reprocessing, hybrid retrieval (pgvector + full text) scoped per chatbot, citations stored with replies; migration 0005 | Done. 8 integration tests on a Neon branch |
+| Dashboard knowledge screens (org knowledge, source page with upload/URL/text, chatbot assignments) and sources shown in Test chat | Done. Tested end to end with the mock embedder and mock LLM. **Not yet run with real embeddings** |
 | Embed SDK, Web Component, iframe, REST API | Not started (Phase 5) |
 | Voice, analytics, production hardening | Not started (Phases 6–8) |
 
@@ -67,6 +68,22 @@ Known limits:
 - The rate limiter is in memory, so it only works for a single server process.
 - API keys are platform-wide for now. Per-organization keys need encrypted storage and are planned for later.
 
+## Knowledge base
+
+- **Sources:** shared (organization-wide) or chatbot-only. A chatbot searches its own sources plus shared sources explicitly assigned to it on its page, and nothing else.
+- **Documents:** PDF, DOCX, TXT, Markdown or HTML files up to 10 MB, public web pages, or pasted text.
+- **Processing:** files are extracted when uploaded. Chunking and embedding run in the background through Next.js `after()`, with a job row in `ingestion_jobs`. Use **Reprocess** to retry a document or refresh a web page.
+- **Retrieval:** pgvector cosine search and Postgres full-text search, merged with Reciprocal Rank Fusion. If no embedding provider is available, keyword search alone is used.
+- **Embeddings:** the provider is chosen from `EMBEDDING_PROVIDER`, otherwise the first one configured of OpenAI (`text-embedding-3-small`), Gemini (`gemini-embedding-001`) or the Neon AI Gateway. All of them produce 1536 dimensions. Anthropic and DeepSeek have no embedding API. `EMBEDDING_PROVIDER=mock` is for development only: it matches words, not meaning.
+- **Changing the embedding model:** reprocess your documents afterwards. Chunks remember which model produced them, and vectors from different models are never compared.
+
+Known limits:
+- Original files aren't stored; only the extracted text is kept. Moving originals to Neon Object Storage is planned.
+- Scanned PDFs need OCR, which isn't supported.
+- Background ingestion runs inside the web server process. A queue worker (for example a Neon Function on a cron) is needed for multiple instances or very large files.
+- URL import checks DNS on every redirect but doesn't pin the resolved address, so a narrow DNS-rebinding window remains.
+- The semantic similarity cut-off (0.2) is a starting point and should be tuned once real embeddings are in use.
+
 ## Layout
 
 ```text
@@ -76,11 +93,12 @@ packages/database     SQL migrations, migration runner, query contexts (RLS)
 packages/core         Tenant services and conversation turns
 packages/ai-providers LangChain.js provider adapters
 packages/ai-engine    Prompt building, streaming, fallback
+packages/rag-engine   Extraction, URL import, chunking, embeddings, ranking
 tools/                Development helpers (mock LLM server, API key setup)
 knowledge_sources     Local source documents waiting to be ingested (git-ignored)
 ```
 
-Planned packages: `rag-engine`, `voice-engine`, `embed-sdk`, `web-component`, `react`.
+Planned packages: `voice-engine`, `embed-sdk`, `web-component`, `react`.
 
 ## Getting started
 

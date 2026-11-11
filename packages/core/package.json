@@ -14,7 +14,8 @@
     "@chatbot/shared": "workspace:*",
     "zod": "4.6.7",
     "@chatbot/ai-engine": "workspace:*",
-    "@chatbot/ai-providers": "workspace:*"
+    "@chatbot/ai-providers": "workspace:*",
+    "@chatbot/rag-engine": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "24.19.2",

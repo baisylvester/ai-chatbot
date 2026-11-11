@@ -5,5 +5,5 @@ import { auth } from "@/lib/auth/server";
 export default auth.middleware({ loginUrl: "/auth/sign-in" });
 
 export const config = {
-  matcher: ["/orgs/:path*", "/workspaces/:path*", "/websites/:path*", "/chatbots/:path*"],
+  matcher: ["/orgs/:path*", "/workspaces/:path*", "/websites/:path*", "/chatbots/:path*", "/knowledge/:path*"],
 };

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { getOrganization, listWorkspaces } from "@chatbot/core";
 import { ActionForm, Field } from "@/components/action-form";
 import { Breadcrumbs, Card, ItemList, Section } from "@/components/ui";
@@ -17,7 +18,12 @@ export default async function OrganizationPage({ params }: { params: Promise<{ o
     <>
       <Breadcrumbs items={[{ label: "Organizations", href: "/orgs" }, { label: org.name }]} />
       <h1 className="mt-2 text-2xl font-semibold">{org.name}</h1>
-      <p className="text-sm text-zinc-500">Your role: {org.role}</p>
+      <p className="text-sm text-zinc-500">
+        Your role: {org.role} ·{" "}
+        <Link href={`/orgs/${org.id}/knowledge`} className="underline">
+          Knowledge
+        </Link>
+      </p>
       <Section title="Workspaces">
         <ItemList
           empty="No workspaces yet."

@@ -12,6 +12,7 @@ import { createChatModel, type ProviderEnv } from "@chatbot/ai-providers";
 import type { ChatbotSettings } from "@chatbot/shared";
 import { z } from "zod";
 import { DomainError, notFound } from "./errors.ts";
+import { formatContext, toCitations, type Citation, type RetrievedChunk } from "./knowledge.ts";
 import type { Chatbot } from "./services.ts";
 
 export const MAX_USER_MESSAGE_CHARS = 4000;
@@ -20,7 +21,10 @@ const HISTORY_TURNS = 20;
 export type SessionSource = "widget" | "api" | "playground";
 export type TrustedRunner = <T>(fn: (db: DbClient) => Promise<T>) => Promise<T>;
 
-export type TurnEvent = { type: "session"; sessionId: string } | EngineEvent;
+export type TurnEvent =
+  | { type: "session"; sessionId: string }
+  | { type: "sources"; citations: Citation[] }
+  | EngineEvent;
 
 /** Primary model first, then configured fallbacks; duplicates removed. */
 export function modelCandidates(settings: ChatbotSettings, env: ProviderEnv): ModelCandidate[] {
@@ -98,6 +102,8 @@ export async function* runConversationTurn(params: {
   origin?: string;
   env: ProviderEnv;
   signal?: AbortSignal;
+  /** Knowledge retrieval for this chatbot (already tenant-scoped by the caller). Errors are logged and skipped. */
+  retrieve?: (query: string) => Promise<RetrievedChunk[]>;
   /** For tests: replaces the model list built from settings. */
   candidates?: ModelCandidate[];
 }): AsyncGenerator<TurnEvent> {
@@ -118,7 +124,23 @@ export async function* runConversationTurn(params: {
   });
   yield { type: "session", sessionId };
 
-  const messages = buildMessages({ systemPrompt: chatbot.settings.systemPrompt, history, userMessage: message });
+  let chunks: RetrievedChunk[] = [];
+  if (params.retrieve) {
+    try {
+      chunks = await params.retrieve(message);
+    } catch (err) {
+      console.error("knowledge retrieval failed; answering without it", err);
+    }
+  }
+  const citations = toCitations(chunks);
+  if (citations.length) yield { type: "sources", citations };
+
+  const messages = buildMessages({
+    systemPrompt: chatbot.settings.systemPrompt,
+    history,
+    userMessage: message,
+    context: chunks.length ? formatContext(chunks.map((c) => ({ title: c.title, content: c.content }))) : undefined,
+  });
   const candidates = params.candidates ?? modelCandidates(chatbot.settings, params.env);
 
   let final: EngineEvent | undefined;
@@ -134,9 +156,9 @@ export async function* runConversationTurn(params: {
     const text = result.type === "done" ? result.text : result.partialText;
     if (text) {
       await db.query(
-        `insert into messages (organization_id, chat_session_id, role, content, provider, model)
-         values ($1, $2, 'assistant', $3, $4, $5)`,
-        [chatbot.organization_id, sessionId, text.slice(0, 20000), result.provider, result.model],
+        `insert into messages (organization_id, chat_session_id, role, content, provider, model, citations)
+         values ($1, $2, 'assistant', $3, $4, $5, $6)`,
+        [chatbot.organization_id, sessionId, text.slice(0, 20000), result.provider, result.model, JSON.stringify(citations)],
       );
     }
     for (const failure of result.failedAttempts) {
