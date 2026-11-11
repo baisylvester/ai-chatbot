@@ -1,0 +1,1 @@
+The sample-word.doc and sample-word.docx fixtures are test01 documents from morungos/node-word-extractor, commit d971d9f69056245ae129bd2ce31436d518293854. They are distributed under the MIT license, reproduced in word-extractor-LICENSE.

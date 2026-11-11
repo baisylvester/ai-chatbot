@@ -10,17 +10,17 @@ A multi-tenant AI chatbot platform. You build the chatbot engine once, then any 
 |---|---|
 | pnpm + Turborepo monorepo, strict TypeScript | Done |
 | `packages/shared`: Zod schemas for tenancy, chatbot settings, domains, origin allowlist check, text chunking (with Vitest tests) | Done |
-| `packages/database`: Neon Postgres schema (tenancy, websites, chatbots, knowledge with pgvector + full-text search, conversations, API keys, audit, usage), RLS, migration runner, user/trusted query contexts | Done. Applied to Neon project `embeddable-chatbot` (`silent-cake-01117731`, aws-ap-southeast-1, branch `main`). RLS tests pass on a throwaway Neon branch |
-| Sign-in: Neon Auth (Managed Better Auth) with email/password, `proxy.ts` route protection and a session check in every page and action | Done. Sign-up and sign-in against Neon Auth haven't been tried by a real user yet |
+| `packages/database`: Postgres schema (tenancy, websites, chatbots, knowledge with pgvector + full-text search, conversations, API keys, audit, usage), RLS, migration runner, user/trusted query contexts | Connected to Supabase `sylv_project` (`gmuqwpfllgmvhzhehepp`). All 12 migrations applied on November 11, 2026; 23 tables have RLS. Live rollback checks verified tenant isolation, viewer write denial, and API-key hash protection. Public-key Data API access is denied |
+| Sign-in: Supabase Auth (email + password with email confirmation, `@supabase/ssr` cookies), `proxy.ts` route protection, `/auth/callback` for confirmation links, and a verified session check in every page and action | Implemented (replaced Neon Auth). Auth endpoint and signed-out route checks pass; email-confirmation sign-up and signed-in navigation still need a real Supabase app account test |
 | `packages/core`: services for organizations, workspaces, websites + allowed domains, chatbots + settings/status, with audit logging | Done. 8 integration tests pass on a throwaway Neon branch, covering isolation, viewer read-only and conflicts |
 | `apps/dashboard`: screens for organizations, workspaces, websites (domains), chatbots (settings, status, embed snippet preview) | Done. Member invitations and editing roles are not built yet |
 | `packages/ai-providers`: LangChain.js adapters for OpenAI, Anthropic, Gemini, DeepSeek, OpenAI-compatible servers and the Neon AI Gateway. Keys come only from server env; timeouts and retries are built in | Done. 6 unit tests |
 | `packages/ai-engine`: prompt building with injection-resistant platform rules, history trimming, streaming, fallback (only before any text is sent), cancellation | Done. 9 unit tests |
 | Conversation turns (`core`): sessions, messages, usage records (tokens, latency, status, failures); migration 0004 | Done. 7 integration tests on a Neon branch |
 | Dashboard **Test chat** (streaming SSE, owners/admins, 20 messages/min) and provider status | Done. Tested end to end against the local mock LLM. **Not yet tried against a real provider** |
-| `packages/rag-engine`: PDF/DOCX/TXT/Markdown/HTML extraction, URL import with SSRF protection, LangChain chunking, embeddings (OpenAI, Gemini, Neon AI Gateway; dev-only mock), Reciprocal Rank Fusion | Done. 18 unit tests, including a real DOCX and a PDF |
+| `packages/rag-engine`: PDF/DOC/DOCX/TXT/Markdown/HTML extraction, URL import with SSRF protection, LangChain chunking, embeddings (OpenAI, Gemini, Neon AI Gateway; dev-only mock), Reciprocal Rank Fusion | Done. 21 tests, including real DOC/DOCX fixtures, PDF extraction and corrupt-document rejection. Legacy DOC parsing runs in a worker with time and memory limits |
 | Knowledge in `core`: global and per-chatbot sources, explicit assignment, documents, duplicate detection, background ingestion jobs, reprocessing, hybrid retrieval (pgvector + full text) scoped per chatbot, citations stored with replies; migration 0005 | Done. 8 integration tests on a Neon branch |
-| Dashboard knowledge screens (org knowledge, source page with upload/URL/text, chatbot assignments) and sources shown in Test chat | Done. Tested end to end with the mock embedder and mock LLM. **Not yet run with real embeddings** |
+| Dashboard knowledge screens (org knowledge, source page with upload/URL/text, direct chatbot upload, chatbot assignments) and sources shown in Test chat | Done. Owners/admins can upload PDF, DOC, DOCX and text directly from a chatbot's Knowledge base section, create a source in the same operation, and manage/reprocess documents. Six server-action tests cover authorization and validation. All four formats passed live Supabase ingestion/retrieval checks with a mock embedder and rolled-back fixtures. **Not yet run with real embeddings or a real signed-in Supabase app user** |
 | `packages/embed-sdk`: one framework-free `embed.js` (28 KB, 9.6 KB gzipped, including voice) with script auto-mount, `<ai-chatbot>` Web Component (Shadow DOM), and an iframe helper with validated `postMessage` | Done. 4 unit tests. Tested in the browser on a separate origin with hostile CSS |
 | Public widget API (`/api/v1/embed/config`, `/sessions`, `/messages`): CORS, Origin allowlist re-checked on every request, HMAC session tokens (2 h), rate limits, generic public errors | Done. 7 integration tests on a Neon branch |
 | iframe page (`/embed/frame`) with CSP `frame-ancestors` from the allowed domains | Done. Tested allowed and blocked framing in the browser |
@@ -33,26 +33,23 @@ A multi-tenant AI chatbot platform. You build the chatbot engine once, then any 
 | Developer docs (`/docs`) and OpenAPI 3.1 (`/api/v1/openapi.json`) | Done |
 | Production readiness: security headers, startup env validation, shared Postgres rate limiting, DB timeouts, maintenance cron (stuck jobs, retention, abandoned voice calls), `/api/health`, JSON logs, fixes from an independent security review, Playwright cross-browser widget tests, CI workflow, deployment guide; migration 0010 | Done. 4 integration tests and 15 browser tests (Chromium, WebKit, mobile Chrome). Firefox runs in CI; Windows on the dev PC blocks Playwright's Firefox binary |
 
-## Stack change: Neon instead of Supabase
+## Database and sign-in: Supabase
 
-Neon is the database (PostgreSQL + pgvector). It does not provide Supabase's Auth, Storage or Realtime, so those are covered as follows:
+The app uses Supabase project `sylv_project` (`gmuqwpfllgmvhzhehepp`) for Postgres (with pgvector) and Auth. Local credentials and migrations are configured; both the Auth endpoint and the app's database health check respond successfully. For a new local checkout, run `powershell -NoProfile -File .\tools\set-supabase-password.ps1`, then apply migrations as described in [DEPLOYMENT.md](DEPLOYMENT.md). It talks to Postgres directly with `pg`, not through Supabase's Data API (PostgREST), so tenancy and RLS stay in the app's own model:
 
-| Supabase feature | Replacement |
+| Supabase concept | How this app handles it |
 |---|---|
-| Postgres + pgvector | Neon (`vector` extension) |
-| `auth.users` / `auth.uid()` | `users` table, plus `app.user_id` set per transaction (`current_app_user_id()`) |
-| `anon` / `authenticated` roles | `chatbot_app` role, which is subject to RLS |
-| `service_role` | The owner role (owns the tables, so it bypasses RLS). Used only by trusted server code |
-| Supabase Auth | To be chosen in Phase 2. Neon Auth (Better Auth) is the default candidate |
-| Supabase Storage | S3-compatible object storage (Phase 4). `knowledge_documents.storage_key` holds the object key |
-| Supabase Realtime | Streaming over HTTP (SSE) from the API (Phase 3/5) |
+| Postgres + pgvector | `vector` is installed in Supabase's `extensions` schema; the restricted app role has schema usage. Migrations live in `packages/database/migrations` |
+| `auth.users` / `auth.uid()` | Supabase Auth signs users in. The app mirrors each verified user into `public.users` and sets `app.user_id` per transaction (`current_app_user_id()`) |
+| `anon` / `authenticated` roles | Not used. Migration 0011 removes their access to the `public` schema, so the publishable key can't read app tables |
+| `service_role` | The owner role (`postgres`, owns the tables, bypasses RLS). Used only by trusted server code |
+| `chatbot_app` | The RLS-restricted role every dashboard request runs as |
+| Storage | Not used yet. `knowledge_documents.storage_key` is ready for object keys |
+| Realtime | Not used. Replies stream over HTTP (SSE) |
 
-## Neon tooling
+The project was on Neon until November 2026. The Neon agent skills in `.claude/skills/` remain for historical reference. `.mcp.json` now points to the project-scoped Supabase MCP server; its OAuth authorization is separate from signing in to the dashboard.
 
-- `neon` CLI 8.13.1 (global). `.neon` links this folder to the project. Running `neon link` writes `DATABASE_URL`, `DATABASE_URL_UNPOOLED` and `NEON_BRANCH` to the root `.env.local`.
-- `.mcp.json`: the Neon MCP server (`https://mcp.neon.tech/mcp`) uses OAuth, so no API key is stored in the repo. Claude Code asks you to sign in to Neon the first time it's used.
-- `.claude/skills/`: the Neon agent skills `neon`, `neon-postgres`, `neon-auth` and `neon-object-storage`, pinned in `skills-lock.json`. Run `neon skills status` to check them and `neon skills update -y` to update.
-- Branch-first workflow: run `neon checkout <feature> --create` for each feature, and `neon diff` to review schema changes.
+The current local app runs at `http://localhost:3100`; its ignored environment files use that platform URL, and Supabase Auth allows `http://localhost:3100/auth/callback`. To restart on the same port, run `pnpm --filter @chatbot/dashboard dev --port 3100`. On deployment, configure the production platform URL and matching callback as described in [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ## AI providers
 
@@ -74,13 +71,13 @@ To add a key without opening the file, run `powershell -NoProfile -ExecutionPoli
 To try the chat without any provider account, run the development mock with `node tools/mock-openai-server.mjs` and set `OPENAI_COMPATIBLE_BASE_URL=http://localhost:4010/v1`. The model `fail` returns HTTP 500, which is useful for testing fallback.
 
 Known limits:
-- The rate limiter is in memory, so it only works for a single server process.
+- Rate limits are shared through Postgres; the in-memory fallback covers a single server process during database failures.
 - API keys are platform-wide for now. Per-organization keys need encrypted storage and are planned for later.
 
 ## Knowledge base
 
 - **Sources:** shared (organization-wide) or chatbot-only. A chatbot searches its own sources plus shared sources explicitly assigned to it on its page, and nothing else.
-- **Documents:** PDF, DOCX, TXT, Markdown or HTML files up to 10 MB, public web pages, or pasted text.
+- **Documents:** PDF, DOC, DOCX, TXT, Markdown or HTML files up to 10 MB, public web pages, or pasted text. On a chatbot page, use **Knowledge base → Add knowledge to this chatbot** to upload directly; owners/admins can choose an existing source or create one with the upload. Source pages retain URL import, pasted text, processing status, Reprocess and Delete controls.
 - **Processing:** files are extracted when uploaded. Chunking and embedding run in the background through Next.js `after()`, with a job row in `ingestion_jobs`. Use **Reprocess** to retry a document or refresh a web page.
 - **Retrieval:** pgvector cosine search and Postgres full-text search, merged with Reciprocal Rank Fusion. If no embedding provider is available, keyword search alone is used.
 - **Embeddings:** the provider is chosen from `EMBEDDING_PROVIDER`, otherwise the first one configured of OpenAI (`text-embedding-3-small`), Gemini (`gemini-embedding-001`) or the Neon AI Gateway. All of them produce 1536 dimensions. Anthropic and DeepSeek have no embedding API. `EMBEDDING_PROVIDER=mock` is for development only: it matches words, not meaning.
@@ -176,7 +173,7 @@ pnpm build
 pnpm dev
 ```
 
-The RLS integration tests run only when `TEST_DATABASE_URL` points at a throwaway database, such as a Neon branch. They apply migrations and create and delete test rows.
+The RLS integration tests run only when `TEST_DATABASE_URL` points at a throwaway database, such as a separate Supabase project or a local Postgres with pgvector. They apply migrations and create and delete test rows.
 
 ## Security model
 

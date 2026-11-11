@@ -1,6 +1,6 @@
 import { DomainError } from "@chatbot/core";
 
-export type ActionState = { error?: string; ok?: string } | null;
+export type ActionState = { error?: string; ok?: string; sourceId?: string } | null;
 
 /** Turns thrown errors into a message safe to show the user. Unknown errors are logged, not shown. */
 export function toActionError(err: unknown): ActionState {

@@ -3,8 +3,8 @@ import { z } from "zod";
 
 const serverEnvSchema = z.object({
   DATABASE_URL: z.string().regex(/^postgres(ql)?:\/\//, "Must be a postgres:// connection string"),
-  NEON_AUTH_BASE_URL: z.url(),
-  NEON_AUTH_COOKIE_SECRET: z.string().min(32, "Must be at least 32 characters"),
+  NEXT_PUBLIC_SUPABASE_URL: z.url(),
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: z.string().min(20, "Paste the publishable (or legacy anon) key"),
   EMBED_TOKEN_SECRET: z.string().min(32, "Must be at least 32 characters"),
 });
 

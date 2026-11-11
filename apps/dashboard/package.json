@@ -7,7 +7,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@chatbot/ai-engine": "workspace:*",
@@ -17,12 +18,14 @@
     "@chatbot/rag-engine": "workspace:*",
     "@chatbot/shared": "workspace:*",
     "@chatbot/voice-engine": "workspace:*",
-    "@neon/auth": "0.8.0",
+    "@supabase/ssr": "0.12.7",
+    "@supabase/supabase-js": "2.118.0",
     "next": "16.4.3",
     "pg": "8.23.1",
     "react": "19.1.10",
     "react-dom": "19.1.10",
     "server-only": "0.0.1",
+    "word-extractor": "1.0.4",
     "zod": "4.6.7"
   },
   "devDependencies": {
@@ -33,6 +36,7 @@
     "@types/react": "19.1.10",
     "@types/react-dom": "19.1.10",
     "tailwindcss": "4.3.3",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "vitest": "4.1.12"
   }
 }

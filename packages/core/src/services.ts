@@ -38,7 +38,7 @@ export interface AuthUser {
   name?: string | null;
 }
 
-/** Mirrors a verified Neon Auth user into public.users. Trusted context only. */
+/** Mirrors a verified Supabase Auth user into public.users. Trusted context only. */
 export async function upsertUser(db: DbClient, user: AuthUser): Promise<void> {
   const u = parse(z.object({ id, email: z.email(), name: z.string().max(200).nullish() }), user);
   await db.query(

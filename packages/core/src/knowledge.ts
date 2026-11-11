@@ -44,6 +44,7 @@ export interface KnowledgeSource {
   description: string | null;
   document_count: number;
   ready_count: number;
+  processing_count: number;
   assigned_chatbots: number;
 }
 
@@ -51,6 +52,7 @@ const sourceSelect = `
   select s.id, s.organization_id, s.scope, s.chatbot_id, cs.settings->>'name' as chatbot_name, s.name, s.description,
     (select count(*)::int from knowledge_documents d where d.knowledge_source_id = s.id) as document_count,
     (select count(*)::int from knowledge_documents d where d.knowledge_source_id = s.id and d.status = 'ready') as ready_count,
+    (select count(*)::int from knowledge_documents d where d.knowledge_source_id = s.id and d.status in ('pending', 'processing')) as processing_count,
     (select count(*)::int from chatbot_knowledge_assignments a where a.knowledge_source_id = s.id) as assigned_chatbots
   from knowledge_sources s left join chatbot_settings cs on cs.chatbot_id = s.chatbot_id`;
 

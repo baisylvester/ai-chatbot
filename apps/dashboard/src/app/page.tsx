@@ -7,7 +7,7 @@ import { getCurrentUser } from "@/lib/session";
 export const dynamic = "force-dynamic";
 
 const phases = [
-  { name: "Foundation", detail: "Monorepo, shared validation, Neon Postgres schema and RLS", done: true },
+  { name: "Foundation", detail: "Monorepo, shared validation, Postgres schema and RLS", done: true },
   { name: "Core platform", detail: "Sign-in, organizations, workspaces, websites, chatbots, access control", done: true },
   { name: "AI engine", detail: "Provider adapters, LangChain.js, streaming conversations", done: false },
   { name: "RAG engine", detail: "Ingestion, embeddings, hybrid retrieval, citations", done: false },

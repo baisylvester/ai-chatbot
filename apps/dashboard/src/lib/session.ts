@@ -3,7 +3,7 @@ import { cache } from "react";
 import { redirect } from "next/navigation";
 import { upsertUser } from "@chatbot/core";
 import { withTrustedContext, withUserContext, type DbClient } from "@chatbot/database";
-import { auth } from "@/lib/auth/server";
+import { createAuthClient } from "@/lib/auth/server";
 import { getPool } from "@/lib/db";
 
 export interface SessionUser {
@@ -14,10 +14,13 @@ export interface SessionUser {
 
 /** Returns the signed-in user (mirrored into public.users), or null. Cached per request. */
 export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
-  const { data: session } = await auth.getSession();
-  const u = session?.user;
-  if (!u?.id || !u.email) return null;
-  const user = { id: u.id, email: u.email, name: u.name ?? null };
+  const supabase = await createAuthClient();
+  // getClaims() verifies the access token's signature (getSession() alone would trust the cookie).
+  const { data } = await supabase.auth.getClaims();
+  const c = data?.claims;
+  if (!c?.sub || !c.email) return null;
+  const name = typeof c.user_metadata?.name === "string" ? c.user_metadata.name : null;
+  const user = { id: c.sub, email: c.email, name };
   await withTrustedContext(getPool(), (db) => upsertUser(db, user));
   return user;
 });

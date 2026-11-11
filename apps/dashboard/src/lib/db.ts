@@ -2,7 +2,7 @@ import "server-only";
 import { createPool } from "@chatbot/database";
 import type pg from "pg";
 
-// One pool per server process (survives dev hot reloads). Uses the pooled Neon URL.
+// One pool per server process (survives dev hot reloads). Uses the pooled URL (Supabase transaction pooler).
 const globalForDb = globalThis as unknown as { chatbotPool?: pg.Pool };
 
 export function getPool(): pg.Pool {

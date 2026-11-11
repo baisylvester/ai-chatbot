@@ -35,8 +35,11 @@ describe("format detection and extraction", () => {
   it("detects formats from extension, then MIME type", () => {
     expect(detectFormat("Report.PDF")).toBe("pdf");
     expect(detectFormat("notes.md")).toBe("md");
+    expect(detectFormat("manual.DOC", "application/octet-stream")).toBe("doc");
+    expect(detectFormat("manual.docx")).toBe("docx");
     expect(detectFormat("file", "text/plain; charset=utf-8")).toBe("txt");
     expect(detectFormat("photo.png", "image/png")).toBeNull();
+    expect(detectFormat("photo.exe", "text/plain")).toBeNull();
   });
 
   it("normalizes whitespace but keeps paragraphs", () => {
@@ -66,6 +69,22 @@ describe("format detection and extraction", () => {
 
   it("rejects files that only claim to be DOCX", async () => {
     await expect(extractText(enc("plain text"), "docx")).rejects.toThrow(/valid DOCX/);
+  });
+
+  it("reads legacy DOC and modern DOCX fixtures with Unicode text", async () => {
+    for (const format of ["doc", "docx"] as const) {
+      const bytes = new Uint8Array(readFileSync(new URL(`./fixtures/sample-word.${format}`, import.meta.url)));
+      const text = await extractText(bytes, format);
+      expect(text).toContain("This is a test of reviewing");
+      expect(text).toContain("😀");
+    }
+  });
+
+  it("rejects invalid DOC headers and corrupt OLE documents", async () => {
+    await expect(extractText(enc("plain text"), "doc")).rejects.toThrow(/valid DOC/);
+    const corrupt = new Uint8Array(512);
+    corrupt.set([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+    await expect(extractText(corrupt, "doc")).rejects.toThrow(/read the DOC/);
   });
 
   // Uses a local, git-ignored document when present; skipped elsewhere.

@@ -8,11 +8,14 @@ import { Playground } from "@/components/playground";
 import { embedSnippets } from "@/lib/snippets";
 import { ProviderSelect, ProviderStatus } from "@/components/provider-select";
 import { VoiceSettingsFields } from "@/components/voice-settings";
+import { KnowledgeUpload } from "@/components/knowledge-upload";
+import { AutoRefresh } from "@/components/auto-refresh";
+import { getEmbedder } from "@/lib/knowledge";
 import { Breadcrumbs, Card, Section } from "@/components/ui";
 import { orNotFound } from "@/lib/load";
 import { asUser } from "@/lib/session";
 import { setChatbotStatusAction, updateChatbotAction } from "../../actions";
-import { createSourceAction, setAssignmentAction } from "../../knowledge-actions";
+import { createSourceAction, setAssignmentAction, uploadFileAction } from "../../knowledge-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +36,7 @@ export default async function ChatbotPage({ params }: { params: Promise<{ chatbo
     }),
   );
   const canEdit = org.role === "owner" || org.role === "admin";
+  const { embedder } = getEmbedder();
   const s = bot.settings;
   const h = await headers();
   const platformUrl =
@@ -75,9 +79,20 @@ export default async function ChatbotPage({ params }: { params: Promise<{ chatbo
       )}
 
       <Section
-        title="Knowledge"
+        title="Knowledge base"
         description="The chatbot answers from its own sources and from shared sources assigned to it, and cites them."
       >
+        {canEdit && <div className="mb-4">
+          <Card>
+            <h3 className="font-medium">Add knowledge to this chatbot</h3>
+            <p className="mb-4 mt-1 text-sm text-zinc-500">Upload a document directly into an existing source, or create a source with your first upload.</p>
+            {!embedder && <p className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+              An embedding provider is needed to make documents searchable. You can upload and save files now; configure a provider, then open the source and choose Reprocess.
+            </p>}
+            <KnowledgeUpload action={uploadFileAction} chatbotId={bot.id} sources={knowledge.own.map(({ id, name }) => ({ id, name }))} />
+          </Card>
+        </div>}
+        <AutoRefresh active={knowledge.own.some((source) => source.document_count > source.ready_count && source.processing_count > 0)} />
         <div className="grid gap-4 sm:grid-cols-2">
           <Card>
             <h3 className="text-sm font-medium">This chatbot&apos;s sources</h3>

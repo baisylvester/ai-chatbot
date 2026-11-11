@@ -12,6 +12,11 @@
   - Sessions use HMAC-signed tokens that expire after 2 hours.
   - No cookies are used.
   - Responses never include provider, model or internal error details.
+- **Sign-in:** Supabase Auth. Every page, action and the proxy verify the access token with `getClaims()` rather than trusting the cookie. Confirmation links can only redirect within the site.
+- **Supabase Data API:** not used. Migration 0011 removes the `anon` and `authenticated` roles' access to the `public` schema, so the publishable key in the browser can't read or call anything there.
+- **Database TLS:** certificates and hostnames are always verified; Supabase hosts are checked against the bundled Supabase root CA.
+- **Supabase verification (November 11, 2026):** live checks confirmed all 23 public tables have RLS, tenant isolation and viewer write restrictions hold, the app role cannot select API-key hashes, and the publishable key cannot read app tables. Fixtures were rolled back. pgvector lives in the `extensions` schema and `current_app_user_id()` has a fixed search path. The performance advisor reports overlapping permissive policies; these remain optimization work rather than a change to the access model.
+  The Security Advisor reported zero errors and zero warnings after hardening. The localhost Auth redirect `http://localhost:3100/auth/callback` was saved with user approval; production callbacks must be configured for the deployed origin.
 - **Server API:** private keys (`cbk_…`) are stored only as SHA-256 hashes, can be revoked, and are scoped to one organization. The API sends no CORS headers.
 - **Dashboard:**
   - Pages are protected by `X-Frame-Options: DENY`, CSP `frame-ancestors 'none'`, HSTS, `nosniff`, a strict referrer policy and a restrictive `Permissions-Policy`.
@@ -19,8 +24,10 @@
   - The iframe page restricts framing to the chatbot's allowed domains.
 - **Rendering:** the widget inserts text only with `textContent`, and links must be http(s). React escapes all dashboard output.
 - **Knowledge:**
+  - File-upload actions check organization role and the source's chatbot ownership before parsing bytes. Source creation and document insertion share a user-scoped transaction.
   - URL import only reaches public addresses, re-checked on every redirect, with size and time limits.
   - Uploads are checked for type, size, PDF page count and DOCX decompressed size.
+  - Legacy DOC files must have an OLE header and are parsed in a worker with a 10-second timeout and V8 heap limits; the worker is terminated after success or failure.
   - Retrieved content is passed to the model as untrusted reference material.
 - **Limits:**
   - **Rate limits:** shared in Postgres for widget sessions and messages, the API, the playground and voice.

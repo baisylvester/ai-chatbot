@@ -7,13 +7,17 @@ import {
   createKnowledgeSource,
   deleteDocument,
   deleteKnowledgeSource,
+  DomainError,
+  getChatbot,
   getDocument,
+  getKnowledgeSource,
+  getOrganization,
   markForReprocessing,
   setGlobalSourceAssignment,
 } from "@chatbot/core";
 import { detectFormat, ExtractionError, extractText, MAX_UPLOAD_BYTES } from "@chatbot/rag-engine";
 import { toActionError, type ActionState } from "@/lib/action-result";
-import { startIngestion } from "@/lib/knowledge";
+import { getEmbedder, startIngestion } from "@/lib/knowledge";
 import { asUser } from "@/lib/session";
 
 const str = (fd: FormData, key: string) => String(fd.get(key) ?? "").trim();
@@ -87,20 +91,45 @@ export async function addUrlAction(_prev: ActionState, fd: FormData): Promise<Ac
 export async function uploadFileAction(_prev: ActionState, fd: FormData): Promise<ActionState> {
   try {
     const sourceId = str(fd, "sourceId");
+    const chatbotId = str(fd, "chatbotId");
     const file = fd.get("file");
     if (!(file instanceof File) || file.size === 0) return { error: "Choose a file to upload" };
     if (file.size > MAX_UPLOAD_BYTES) return { error: "The file is larger than 10 MB" };
     const format = detectFormat(file.name, file.type);
-    if (!format) return { error: "Unsupported file type. Upload PDF, DOCX, TXT, Markdown or HTML." };
+    if (!format) return { error: "Unsupported file type. Upload PDF, DOC, DOCX, TXT, Markdown or HTML." };
+    // Authorize before parsing untrusted bytes. Hiding the form does not protect the server action.
+    await asUser(async (db) => {
+      const source = sourceId ? await getKnowledgeSource(db, sourceId) : null;
+      const bot = chatbotId ? await getChatbot(db, chatbotId) : null;
+      if (!source && !bot) throw new DomainError("invalid", "Choose a knowledge source or chatbot");
+      if (source && bot && (source.scope !== "chatbot" || source.chatbot_id !== bot.id)) {
+        throw new DomainError("invalid", "Choose a source that belongs to this chatbot");
+      }
+      const org = await getOrganization(db, source?.organization_id ?? bot!.organization_id);
+      if (org.role !== "owner" && org.role !== "admin") {
+        throw new DomainError("forbidden", "Only owners and admins can upload knowledge files");
+      }
+    });
     // Extraction is quick and needs the bytes, so it happens now; chunking and embedding run in the background.
     const content = await extractText(new Uint8Array(await file.arrayBuffer()), format);
     const title = str(fd, "title") || file.name.replace(/\.[^.]+$/, "");
-    const doc = await asUser((db) =>
-      addDocument(db, { sourceId, kind: "file", title, content, mimeType: file.type || undefined, sizeBytes: file.size }),
-    );
+    // Source creation and document insertion share one transaction: a failed insert leaves no empty source.
+    const doc = await asUser(async (db) => {
+      const destination = sourceId || (await createKnowledgeSource(db, {
+        chatbotId, name: str(fd, "sourceName") || "Uploaded files",
+      })).id;
+      return addDocument(db, { sourceId: destination, kind: "file", title, content, mimeType: file.type || undefined, sizeBytes: file.size });
+    });
     await startIngestion(doc);
-    revalidatePath(`/knowledge/${sourceId}`);
-    return { ok: `Uploaded "${title}". Processing in the background.` };
+    revalidatePath(`/knowledge/${doc.knowledge_source_id}`);
+    if (chatbotId) revalidatePath(`/chatbots/${chatbotId}`);
+    const { embedder } = getEmbedder();
+    return {
+      ok: embedder
+        ? `Uploaded "${title}". Processing in the background.`
+        : `Saved "${title}". Configure an embedding provider, then choose Reprocess on the document to make it searchable.`,
+      sourceId: doc.knowledge_source_id,
+    };
   } catch (err) {
     if (err instanceof ExtractionError) return { error: err.message };
     return toActionError(err);

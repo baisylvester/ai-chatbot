@@ -1,6 +1,7 @@
 import { getOrganization, getKnowledgeSource, listDocuments } from "@chatbot/core";
 import { ActionForm, Field } from "@/components/action-form";
 import { AutoRefresh } from "@/components/auto-refresh";
+import { KnowledgeUpload } from "@/components/knowledge-upload";
 import { Breadcrumbs, Card, Section } from "@/components/ui";
 import { getEmbedder } from "@/lib/knowledge";
 import { orNotFound } from "@/lib/load";
@@ -102,22 +103,9 @@ export default async function KnowledgeSourcePage({ params }: { params: Promise<
 
       {canEdit && (
         <>
-          <Section title="Upload a file" description="PDF, DOCX, TXT, Markdown or HTML, up to 10 MB. Scanned PDFs (images only) aren't supported yet.">
+          <Section title="Upload a file" description="PDF, Word (.doc or .docx), TXT, Markdown or HTML, up to 10 MB.">
             <Card>
-              <ActionForm action={uploadFileAction} submitLabel="Upload">
-                <input type="hidden" name="sourceId" value={source.id} />
-                <label className="flex flex-col gap-1 text-sm">
-                  <span className="font-medium">File</span>
-                  <input
-                    type="file"
-                    name="file"
-                    required
-                    accept=".pdf,.docx,.txt,.md,.markdown,.html,.htm,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown,text/html"
-                    className="text-sm"
-                  />
-                </label>
-                <Field label="Title" name="title" required={false} placeholder="Defaults to the file name" />
-              </ActionForm>
+              <KnowledgeUpload action={uploadFileAction} sourceId={source.id} />
             </Card>
           </Section>
 

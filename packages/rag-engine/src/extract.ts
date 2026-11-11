@@ -5,8 +5,10 @@
 import { convert } from "html-to-text";
 import mammoth from "mammoth";
 import { extractText as extractPdfText, getDocumentProxy } from "unpdf";
+import { extractLegacyDoc } from "./legacy-doc.ts";
+import { MAX_UPLOAD_BYTES, type SupportedFormat } from "./formats.ts";
+export { MAX_UPLOAD_BYTES, detectFormat, type SupportedFormat } from "./formats.ts";
 
-export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10 MB
 export const MAX_EXTRACTED_CHARS = 2_000_000;
 export const MAX_PDF_PAGES = 1000;
 /** Total uncompressed size allowed for a DOCX archive (guards against zip bombs). */
@@ -50,39 +52,11 @@ export function assertSafeZip(bytes: Uint8Array): void {
   }
 }
 
-export type SupportedFormat = "pdf" | "docx" | "txt" | "md" | "html";
-
 export class ExtractionError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "ExtractionError";
   }
-}
-
-const byExtension: Record<string, SupportedFormat> = {
-  pdf: "pdf",
-  docx: "docx",
-  txt: "txt",
-  text: "txt",
-  md: "md",
-  markdown: "md",
-  html: "html",
-  htm: "html",
-};
-
-const byMime: Record<string, SupportedFormat> = {
-  "application/pdf": "pdf",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
-  "text/plain": "txt",
-  "text/markdown": "md",
-  "text/x-markdown": "md",
-  "text/html": "html",
-};
-
-/** Picks a format from the file name first (browsers often send generic MIME types), then MIME type. */
-export function detectFormat(fileName: string, mimeType?: string): SupportedFormat | null {
-  const ext = fileName.toLowerCase().split(".").pop() ?? "";
-  return byExtension[ext] ?? (mimeType ? byMime[mimeType.split(";")[0]!.trim().toLowerCase()] ?? null : null);
 }
 
 /** Collapses whitespace noise while keeping paragraph breaks. */
@@ -138,6 +112,14 @@ export async function extractText(bytes: Uint8Array, format: SupportedFormat): P
         if (bytes[0] !== 0x50 || bytes[1] !== 0x4b) throw new ExtractionError("Not a valid DOCX file");
         assertSafeZip(bytes);
         text = (await mammoth.extractRawText({ buffer: Buffer.from(bytes) })).value;
+        break;
+      }
+      case "doc": {
+        const signature = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
+        if (bytes.length < 512 || !signature.every((b, i) => bytes[i] === b)) {
+          throw new ExtractionError("Not a valid DOC file. Save the document as DOCX and try again.");
+        }
+        text = await extractLegacyDoc(bytes);
         break;
       }
       case "html":

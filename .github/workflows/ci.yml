@@ -22,7 +22,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       # Database integration tests run only when a throwaway database URL is provided
-      # (for example a Neon branch created per run); otherwise they are skipped.
+      # (a throwaway database with pgvector); otherwise they are skipped.
       - run: pnpm test
         env:
           TEST_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}

@@ -1,1 +1,1 @@
-export { createPool, withStrictSsl, withTrustedContext, withUserContext, type DbClient } from "./client.ts";
+export { connectionConfig, createPool, withStrictSsl, withTrustedContext, withUserContext, type DbClient } from "./client.ts";
