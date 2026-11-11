@@ -1,0 +1,23 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ai-chatbot",
+  "account_id": "f3563405b99e40a41ff1eef2741d6aad",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": [
+    "nodejs_compat",
+    "global_fetch_strictly_public"
+  ],
+  "workers_dev": true,
+  "preview_urls": false,
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "vars": {
+    "CLOUDFLARE_WORKERS": "1",
+    "NEXT_PUBLIC_PLATFORM_URL": "https://ai-chatbot.ai-edu-web.workers.dev",
+    "NEXT_PUBLIC_SUPABASE_URL": "https://gmuqwpfllgmvhzhehepp.supabase.co",
+    "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY": "sb_publishable_qXPpIsUqE7pWJd0cUrSTzw_5W5RIJ9q"
+  }
+}

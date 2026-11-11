@@ -2,6 +2,7 @@ packages:
   - "apps/*"
   - "packages/*"
   - "tests/*"
-# Dependency install scripts are blocked by default; esbuild's only links its platform binary.
+# Only the build tools' platform binary installers may run dependency scripts.
 allowBuilds:
   esbuild: true
+  workerd: true

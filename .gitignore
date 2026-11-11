@@ -21,3 +21,6 @@ apps/dashboard/public/embed.js
 # Playwright output
 tests/e2e/test-results/
 tests/e2e/playwright-report/
+.open-next/
+.wrangler/
+.dev.vars*

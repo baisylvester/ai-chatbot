@@ -1,0 +1,32 @@
+name: Build Cloudflare Worker
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @chatbot/embed-sdk build
+      - run: pnpm --filter @chatbot/dashboard build:cloudflare
+        env:
+          SKIP_ENV_CHECK: "1"
+      # This contains compiled code and public assets only. Runtime credentials are
+      # uploaded from the deployment machine directly to Cloudflare, never to CI.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cloudflare-worker
+          path: apps/dashboard/.open-next/
+          include-hidden-files: true
+          retention-days: 1
