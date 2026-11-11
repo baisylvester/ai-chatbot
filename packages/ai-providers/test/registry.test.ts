@@ -3,6 +3,7 @@ import { ChatAnthropic } from "@langchain/anthropic";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { ChatOpenAI } from "@langchain/openai";
 import {
+  anthropicAcceptsTemperature,
   createChatModel,
   isProviderConfigured,
   listProviders,
@@ -38,6 +39,15 @@ describe("createChatModel", () => {
     expect(m.temperature).toBe(0.9);
     expect(m.maxTokens).toBe(256);
     expect(m.timeout).toBe(5000);
+  });
+
+  it("omits temperature for Claude models that reject it", () => {
+    for (const model of ["claude-haiku-4-5", "claude-sonnet-4-6", "claude-opus-4-1", "claude-3-5-haiku-latest"]) expect(anthropicAcceptsTemperature(model)).toBe(true);
+    for (const model of ["claude-opus-4-7", "claude-opus-4-8", "claude-sonnet-5", "claude-haiku-5-5", "claude-fable-5-2"]) expect(anthropicAcceptsTemperature(model)).toBe(false);
+    const current = createChatModel({ provider: "anthropic", model: "claude-haiku-5-5", temperature: 0.3 }, env) as ChatAnthropic;
+    expect(current.temperature).toBeUndefined();
+    const older = createChatModel({ provider: "anthropic", model: "claude-haiku-4-5", temperature: 0.3 }, env) as ChatAnthropic;
+    expect(older.temperature).toBe(0.3);
   });
 
   it("points OpenAI-compatible providers at the right base URL", () => {

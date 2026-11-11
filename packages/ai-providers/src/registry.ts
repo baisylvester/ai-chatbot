@@ -55,6 +55,14 @@ function openAICompatible(apiKey: string, baseURL: string | undefined, o: Requir
   });
 }
 
+/**
+ * Claude Opus 4.7 and every later Claude model reject `temperature` ("deprecated for this model").
+ * Only Claude 3 and Claude 4.0-4.6 still take it.
+ */
+export function anthropicAcceptsTemperature(model: string): boolean {
+  return /^claude-(3|[a-z]+-4-[0-6])/.test(model);
+}
+
 const adapters: Record<Provider, ProviderAdapter> = {
   openai: {
     label: providerLabels.openai,
@@ -70,7 +78,7 @@ const adapters: Record<Provider, ProviderAdapter> = {
       new ChatAnthropic({
         model: o.model,
         apiKey: env.ANTHROPIC_API_KEY,
-        temperature: o.temperature,
+        temperature: anthropicAcceptsTemperature(o.model) ? o.temperature : undefined,
         maxTokens: o.maxOutputTokens,
         maxRetries: o.maxRetries,
         clientOptions: { timeout: o.timeoutMs },
