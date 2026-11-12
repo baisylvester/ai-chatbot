@@ -29,6 +29,9 @@ importers:
       '@chatbot/database':
         specifier: workspace:*
         version: link:../../packages/database
+      '@chatbot/mail-agent':
+        specifier: workspace:*
+        version: link:../../packages/mail-agent
       '@chatbot/rag-engine':
         specifier: workspace:*
         version: link:../../packages/rag-engine
@@ -228,6 +231,31 @@ importers:
       esbuild:
         specifier: 0.28.2
         version: 0.28.2
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 4.1.12
+        version: 4.1.12(@types/node@24.19.2)(vite@8.3.7(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.36.0)(yaml@2.9.1))
+
+  packages/mail-agent:
+    dependencies:
+      '@chatbot/database':
+        specifier: workspace:*
+        version: link:../database
+      '@langchain/core':
+        specifier: 1.3.0
+        version: 1.3.0(openai@7.54.0(@aws-sdk/credential-provider-node@3.972.95)(@smithy/hash-node@4.5.2)(@smithy/signature-v4@5.7.5)(undici@7.30.1)(ws@8.21.0)(zod@4.6.7))(ws@8.21.0)
+      zod:
+        specifier: 4.6.7
+        version: 4.6.7
+    devDependencies:
+      '@langchain/google-genai':
+        specifier: 2.3.4
+        version: 2.3.4(@langchain/core@1.3.0(openai@7.54.0(@aws-sdk/credential-provider-node@3.972.95)(@smithy/hash-node@4.5.2)(@smithy/signature-v4@5.7.5)(undici@7.30.1)(ws@8.21.0)(zod@4.6.7))(ws@8.21.0))
+      '@types/node':
+        specifier: 24.19.2
+        version: 24.19.2
       typescript:
         specifier: 5.9.3
         version: 5.9.3

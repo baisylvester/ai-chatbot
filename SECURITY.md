@@ -35,6 +35,15 @@
   - **Database:** connection-wait and statement timeouts.
   - **Realtime voice:** one call per conversation, and a daily budget per organization.
 
+## Mail agent
+
+- **Approval gate.** The model's mailbox interface has no send or delete call. `draft_email` saves a Gmail draft and `request_trash` records a request; both become rows in `mail_actions`, and only the `approveAction` server action (signed-in user, their own row, claimed atomically so a double tap cannot send twice) calls Gmail to send or trash. Trash is recoverable for 30 days; the Gmail scope cannot delete permanently.
+- **Prompt injection.** Email text is untrusted. The system prompt says so, but the control that matters is the gate above: without the owner's approval the most an injected instruction can do is archive, star, mark read or leave a draft. Read the draft before approving it.
+- **Tokens.** Only the refresh token is stored, encrypted with AES-256-GCM under `MAIL_TOKEN_SECRET`. The four mail tables have RLS enabled with no policies and no grants, so the restricted role and the Supabase API roles cannot read them; the server reads them in a trusted context filtered by the signed-in user's id. Disconnect revokes the token at Google and deletes the rows.
+- **OAuth.** The callback requires the signed-in user and a random `state` matching an httpOnly cookie, and refuses a grant without the Gmail scope.
+- **Notifications.** Pushes carry no content. The service worker fetches the text with the user's session, so mail content never passes through a push service. Push endpoints are limited to known browser push services, so the server cannot be pointed at arbitrary URLs.
+- **Not yet reviewed independently.** Conversations with the agent are not stored; message text is not logged.
+
 ## Review (Phase 8)
 
 An independent reviewer read the whole codebase in November 2026 (code reading only, nothing run). It found **no cross-tenant read or write path**. The isolation, row-level security, tokens, SQL, SSRF and XSS checks all held up. Findings and outcomes:

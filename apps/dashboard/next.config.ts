@@ -19,7 +19,7 @@ const dashboardSecurityHeaders = [
 const nextConfig: NextConfig = {
   output: "standalone",
   // Workspace packages ship TypeScript source; let Next compile them.
-  transpilePackages: ["@chatbot/shared", "@chatbot/core", "@chatbot/database", "@chatbot/ai-engine", "@chatbot/ai-providers", "@chatbot/rag-engine", "@chatbot/voice-engine"],
+  transpilePackages: ["@chatbot/shared", "@chatbot/core", "@chatbot/database", "@chatbot/ai-engine", "@chatbot/ai-providers", "@chatbot/rag-engine", "@chatbot/voice-engine", "@chatbot/mail-agent"],
   // Native Node driver: keep it out of the bundle.
   serverExternalPackages: ["pg", "word-extractor"],
   poweredByHeader: false,

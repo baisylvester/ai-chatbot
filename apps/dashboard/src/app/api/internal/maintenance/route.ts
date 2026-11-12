@@ -9,6 +9,7 @@ import { withTrustedContext } from "@chatbot/database";
 import { getPool } from "@/lib/db";
 import { getEmbedder } from "@/lib/knowledge";
 import { log } from "@/lib/log";
+import { runMailChecks } from "@/lib/mail-agent";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,8 +28,13 @@ export async function GET(request: Request) {
   const started = Date.now();
   try {
     const result = await runMaintenance((fn) => withTrustedContext(getPool(), fn), { embedder: getEmbedder().embedder });
-    log.info("maintenance.done", { ...result, ms: Date.now() - started });
-    return Response.json({ ok: true, ...result, ms: Date.now() - started });
+    // New-mail checks for connected mailboxes. A failure here must not fail the rest of maintenance.
+    const mail = await runMailChecks().catch((err: unknown) => {
+      log.warn("mail_check.run_failed", { error: err });
+      return { mailboxesChecked: 0, notificationsSent: 0 };
+    });
+    log.info("maintenance.done", { ...result, ...mail, ms: Date.now() - started });
+    return Response.json({ ok: true, ...result, ...mail, ms: Date.now() - started });
   } catch (err) {
     log.error("maintenance.failed", { error: err });
     return Response.json({ error: { code: "server_error", message: "Maintenance failed" } }, { status: 500 });

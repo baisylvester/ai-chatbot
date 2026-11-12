@@ -20,6 +20,7 @@
     "@chatbot/ai-providers": "workspace:*",
     "@chatbot/core": "workspace:*",
     "@chatbot/database": "workspace:*",
+    "@chatbot/mail-agent": "workspace:*",
     "@chatbot/rag-engine": "workspace:*",
     "@chatbot/shared": "workspace:*",
     "@chatbot/voice-engine": "workspace:*",

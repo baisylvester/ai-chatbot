@@ -17,6 +17,13 @@ This section supersedes older statements below where they differ.
   3. Custom SMTP in Supabase before real users sign up.
 - **Still open, engineering:** server-side realtime voice connection (`SECURITY.md`, finding 2); owner guard before any member-management screen.
 
+## Update (2026-11-12): mail agent
+
+- New `/agent` page (linked in the header) and package `packages/mail-agent`: Gmail OAuth, a Gemini Flash tool-calling agent (`MAIL_AGENT_MODEL`, default `gemini-flash-latest`), an approval queue for sending and trashing, new-mail digests from the maintenance cron, payload-less Web Push, and an install manifest. See "Mail agent" in `DEPLOYMENT.md` and `SECURITY.md`.
+- Migration `20261112090000_mail_agent.sql` is applied to `sylv_project`.
+- **Checked:** unit tests with a scripted model and fake mailbox (approval gate, argument validation, OAuth scope check, MIME building, VAPID signature); every storage function plus the migration in a rolled-back transaction on Supabase; the screen with canned data in a browser at desktop and phone width.
+- **Not checked, needs the owner's keys:** a real Gemini call, a real Gmail connection, and a real push on a device. Nothing has run against Google yet.
+
 ## Where things stand
 
 - **Repo:** `C:\Users\PC2\AndroidStudioProjects\PROJECTS\embeddable_chatbot`, git branch `main`, last commit `33d195d` (Phase 8).

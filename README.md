@@ -134,6 +134,10 @@ Notes:
 - **Usage:** recorded per request: speech-to-text (audio seconds reported by the browser), text-to-speech (characters) and realtime (call duration).
 - **Settings delay:** visitors see a settings change within about a minute, because the public config is cached.
 
+## Mail agent
+
+`/agent` connects the signed-in user's Gmail to a Gemini Flash agent that summarizes, searches, sorts and drafts. It never sends or trashes mail until the user approves it on the page. It checks for new mail every 10 minutes and can notify the user's phone or computer once the page is installed as an app. Setup: "Mail agent" in `DEPLOYMENT.md`.
+
 ## Analytics and privacy
 
 - **Unique visitors:** the widget keeps a random ID in the visitor's browser (localStorage). The server stores only an HMAC of it, scoped per organization. No IP addresses or cookies are used.

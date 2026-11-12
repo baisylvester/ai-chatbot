@@ -97,3 +97,23 @@ The same OpenNext build runs on Cloudflare Pages (project `ai-chatbot`) and on t
   ```
   To update the cron Worker from the same build: `wrangler deploy` with `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE` set to any placeholder Postgres URL.
 - **Supabase Auth:** set the Site URL to the Pages URL and allow `https://ai-chatbot-9wg.pages.dev/auth/callback`.
+
+## Mail agent (`/agent`)
+
+A signed-in user connects their Gmail and asks a Gemini Flash agent to summarize, search, sort and draft. Sending and moving to Trash only happen when the user presses the approve button. The page works on phones and desktops and can be installed as an app (browser menu → Install / Add to Home screen), which is also how notifications reach the device.
+
+| Variable | Notes |
+|---|---|
+| `GOOGLE_GENERATIVE_AI_API_KEY` | Gemini API key (Google AI Studio). Runs the agent |
+| `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` | Google Cloud OAuth client, type "Web application". Enable the **Gmail API**; authorized redirect URI: `<platform URL>/api/agent/gmail/callback` |
+| `MAIL_TOKEN_SECRET` | 32+ random characters; encrypts mailbox tokens in the database. Changing it disconnects every mailbox |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | Web Push key pair for notifications. `VAPID_SUBJECT` is optional (defaults to the platform URL) |
+| `MAIL_AGENT_PROVIDER`, `MAIL_AGENT_MODEL` | Optional. Default `gemini` / `gemini-flash-latest` |
+
+Set every one of them on **both** the Pages project and the Worker: the Worker's 10-minute cron is what checks for new mail and sends notifications.
+
+Google setup notes:
+
+- The agent asks for one scope, `gmail.modify` (read, label, draft, send; no permanent delete). Google classes it as **restricted**.
+- While the OAuth consent screen is in **Testing**, only the test users you list can connect, and Google expires their access after 7 days (the page then shows "Reconnect Gmail"). Publishing the app for anyone to use requires Google's verification, including a security assessment for restricted scopes.
+- Migration `20261112090000_mail_agent.sql` adds the four tables the agent uses.

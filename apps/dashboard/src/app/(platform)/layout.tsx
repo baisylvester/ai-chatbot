@@ -14,8 +14,14 @@ export default async function PlatformLayout({ children }: { children: ReactNode
           <Link href="/orgs" className="font-semibold">
             Chatbot Platform
           </Link>
-          <div className="flex items-center gap-3 text-sm">
-            <span className="hidden text-zinc-500 sm:inline">{user.email}</span>
+          <div className="flex items-center gap-1 text-sm sm:gap-3">
+            <Link href="/orgs" className="rounded-md px-2 py-1 hover:bg-zinc-100 dark:hover:bg-zinc-900">
+              Chatbots
+            </Link>
+            <Link href="/agent" className="rounded-md px-2 py-1 hover:bg-zinc-100 dark:hover:bg-zinc-900">
+              Mail agent
+            </Link>
+            <span className="hidden text-zinc-500 md:inline">{user.email}</span>
             <form action={signOutAction}>
               <button type="submit" className="rounded-md px-2 py-1 hover:bg-zinc-100 dark:hover:bg-zinc-900">
                 Sign out
