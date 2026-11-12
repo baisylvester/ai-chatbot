@@ -103,7 +103,7 @@ export default async function KnowledgeSourcePage({ params }: { params: Promise<
 
       {canEdit && (
         <>
-          <Section title="Upload a file" description="PDF, Word (.doc or .docx), TXT, Markdown or HTML, up to 10 MB.">
+          <Section title="Upload files" description="PDF, Word (.doc or .docx), TXT, Markdown or HTML, up to 10 MB each. Add several at once.">
             <Card>
               <KnowledgeUpload action={uploadFileAction} sourceId={source.id} />
             </Card>

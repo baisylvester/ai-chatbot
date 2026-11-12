@@ -85,7 +85,7 @@ export default async function ChatbotPage({ params }: { params: Promise<{ chatbo
         {canEdit && <div className="mb-4">
           <Card>
             <h3 className="font-medium">Add knowledge to this chatbot</h3>
-            <p className="mb-4 mt-1 text-sm text-zinc-500">Upload a document directly into an existing source, or create a source with your first upload.</p>
+            <p className="mb-4 mt-1 text-sm text-zinc-500">Upload one or more documents directly into an existing source, or create a source with your first upload.</p>
             {!embedder && <p className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
               No embedding provider is configured, so documents are searchable by keywords only. Add one, then choose Reprocess on a document for meaning-based search.
             </p>}
