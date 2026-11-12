@@ -36,13 +36,16 @@ export function ActionForm({
   children,
   submitLabel,
   variant = "primary",
-  className = "flex flex-wrap items-end gap-3",
+  className,
+  alignTop = false,
 }: {
   action: Action;
   children?: ReactNode;
   submitLabel: string;
   variant?: "primary" | "danger" | "subtle";
   className?: string;
+  /** For inline rows where a field has a hint: align fields at the top so the hint cannot push its input out of line. */
+  alignTop?: boolean;
 }) {
   const [state, formAction, actionPending] = useActionState(action, null);
   const [transitionPending, startTransition] = useTransition();
@@ -60,9 +63,16 @@ export function ActionForm({
   }, [state]);
 
   return (
-    <form ref={formRef} action={formAction} onSubmit={onSubmit} className={className}>
+    <form ref={formRef} action={formAction} onSubmit={onSubmit} className={className ?? `flex flex-wrap gap-3 ${alignTop ? "items-start" : "items-end"}`}>
       {children}
-      <SubmitButton label={submitLabel} variant={variant} pending={actionPending || transitionPending} />
+      {alignTop ? (
+        // The offset matches a field label (20px line + 4px gap) and the height matches an input.
+        <div className="mt-6 flex h-[34px] items-center">
+          <SubmitButton label={submitLabel} variant={variant} pending={actionPending || transitionPending} />
+        </div>
+      ) : (
+        <SubmitButton label={submitLabel} variant={variant} pending={actionPending || transitionPending} />
+      )}
       {state?.error && (
         <p role="alert" className="w-full text-sm text-red-600">
           {state.error}

@@ -19,7 +19,7 @@ export default async function OrganizationsPage() {
       </Section>
       <Section title="New organization">
         <Card>
-          <ActionForm action={createOrganizationAction} submitLabel="Create organization">
+          <ActionForm action={createOrganizationAction} submitLabel="Create organization" alignTop>
             <Field label="Name" name="name" placeholder="Beyond AI" />
             <Field label="URL slug" name="slug" placeholder="beyond-ai" hint="Lowercase letters, digits and hyphens" />
           </ActionForm>

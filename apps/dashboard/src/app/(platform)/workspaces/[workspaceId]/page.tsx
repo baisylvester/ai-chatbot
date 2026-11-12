@@ -36,7 +36,7 @@ export default async function WorkspacePage({ params }: { params: Promise<{ work
       {canEdit && (
         <Section title="New website" description="The chatbot widget will only load on these domains and their subdomains.">
           <Card>
-            <ActionForm action={createWebsiteAction} submitLabel="Add website">
+            <ActionForm action={createWebsiteAction} submitLabel="Add website" alignTop>
               <input type="hidden" name="workspaceId" value={ws.id} />
               <Field label="Name" name="name" placeholder="Company site" />
               <Field label="Domains" name="domains" placeholder="example.com, shop.example.com" hint="Comma-separated hostnames, no https://" />
