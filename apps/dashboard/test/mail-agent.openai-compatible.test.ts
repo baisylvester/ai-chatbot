@@ -25,7 +25,7 @@ async function serverReachable(baseURL: string): Promise<boolean> {
 const reachable = await serverReachable(BASE_URL);
 
 const summary = (id: string, subject: string, from: string): MailSummary => ({
-  id, threadId: `t${id}`, from, subject, date: "2026-11-12", snippet: "Please see the attached invoice.", unread: true,
+  id, threadId: `t${id}`, from, subject, date: "2026-11-12", snippet: "Please see the attached invoice.", unread: true, starred: false,
 });
 
 function recordingMail(): MailApi & { calls: string[] } {

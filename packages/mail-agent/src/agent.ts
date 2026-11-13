@@ -41,7 +41,7 @@ const define = <S extends z.ZodType>(def: ToolDef<S>) => def as unknown as ToolD
 export const mailTools: ToolDef[] = [
   define({
     name: "search_mail",
-    description: "Search the mailbox with Gmail search syntax (for example: is:unread in:inbox, from:name, newer_than:2d, subject:invoice). Returns sender, subject, date and a short snippet for each match.",
+    description: "Search the mailbox with Gmail search syntax (for example: is:unread in:inbox, from:name, newer_than:2d, subject:invoice). Returns sender, subject, date, a short snippet and whether it is unread or starred for each match.",
     schema: z.object({
       query: z.string().min(1).max(300).describe("Gmail search query"),
       max: z.number().int().min(1).max(8).optional().describe("How many messages to return (default 5)"),

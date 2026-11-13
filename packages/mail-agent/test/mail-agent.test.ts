@@ -3,13 +3,13 @@ import type { BaseChatModel } from "@langchain/core/language_models/chat_models"
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { describe, expect, it, vi } from "vitest";
 import {
-  buildDigest, buildMime, cleanRecipients, decryptSecret, EMPTY_REPLY, encryptSecret, exchangeCode, fromBase64Url, generateVapidKeys,
-  GmailClient, GMAIL_SCOPE, htmlToText, isPushEndpoint, MailAuthError, mailTools, plainDigest, runMailAgent, sendPush, systemPrompt,
+  buildBatchBody, buildDigest, buildMime, CALL_LIMIT_MESSAGE, cleanRecipients, decryptSecret, EMPTY_REPLY, encryptSecret, exchangeCode, fromBase64Url, generateVapidKeys,
+  GmailClient, GMAIL_SCOPE, htmlToText, isPushEndpoint, MailAuthError, mailTools, parseBatchResponse, plainDigest, runMailAgent, sendPush, systemPrompt,
   type MailApi, type MailSummary,
 } from "../src/index.ts";
 
 const SECRET = "0123456789abcdef0123456789abcdef-test";
-const mail = (id: string, subject = "Hello"): MailSummary => ({ id, threadId: `t${id}`, from: "Ana Cruz <ana@example.com>", subject, date: "", snippet: "snippet", unread: true });
+const mail = (id: string, subject = "Hello"): MailSummary => ({ id, threadId: `t${id}`, from: "Ana Cruz <ana@example.com>", subject, date: "", snippet: "snippet", unread: true, starred: false });
 
 /** A model that replays scripted answers and records what it was sent. */
 function scriptedModel(answers: AIMessage[]) {
@@ -90,6 +90,38 @@ describe("gmail helpers", () => {
     expect(sent.message.threadId).toBe("t1");
     expect(Buffer.from(sent.message.raw, "base64url").toString()).toContain("In-Reply-To: <abc@mail>");
     await expect(new GmailClient("token", fetchFn).read("../drafts")).rejects.toThrow(/Invalid message id/);
+  });
+
+  it("loads all search results with one batch request and keeps Gmail's order", async () => {
+    const urls: string[] = [];
+    const part = (id: string, status = "200 OK", labels: string[] = []) =>
+      `Content-Type: application/http\r\nContent-ID: <response-item>\r\n\r\nHTTP/1.1 ${status}\r\nContent-Type: application/json\r\n\r\n${
+        JSON.stringify({ id, threadId: `t${id}`, snippet: "{braces} inside", labelIds: labels, payload: { headers: [{ name: "Subject", value: `Subject ${id}` }] } })}\r\n`;
+    const fetchFn = (async (url: string, init?: RequestInit) => {
+      urls.push(url);
+      if (url.includes("/messages?")) return Response.json({ messages: [{ id: "m1" }, { id: "m2" }, { id: "m3" }] });
+      expect(String(init?.body)).toContain("GET /gmail/v1/users/me/messages/m2?format=metadata");
+      // Gmail may answer out of order, and single parts can fail.
+      const body = `--reply\r\n${part("m3", "200 OK", ["STARRED"])}--reply\r\n${part("m2", "404 Not Found")}--reply\r\n${part("m1", "200 OK", ["UNREAD"])}--reply--\r\n`;
+      return new Response(body, { headers: { "Content-Type": "multipart/mixed; boundary=reply" } });
+    }) as unknown as typeof fetch;
+    const found = await new GmailClient("token", fetchFn).search("in:inbox", 8);
+    expect(urls).toHaveLength(2);
+    expect(found.map((item) => [item.id, item.subject, item.unread, item.starred])).toEqual([["m1", "Subject m1", true, false], ["m3", "Subject m3", false, true]]);
+    expect(buildBatchBody(["a", "b"], "x").match(/--x\r\n/g)).toHaveLength(2);
+    expect(parseBatchResponse("--b\r\n\r\nHTTP/1.1 200 OK\r\n\r\nnot json\r\n--b--", "b").size).toBe(0);
+  });
+
+  it("stops calling Gmail once a request has used its share, and fails when a whole batch fails", async () => {
+    const fetchFn = (async (url: string) => (url.includes("/messages?") ? Response.json({ messages: [{ id: "m1" }] }) : Response.json({ id: "m1", threadId: "t1" }))) as unknown as typeof fetch;
+    const client = new GmailClient("token", fetchFn, 3);
+    await client.search("a", 5); // the list, then the one message
+    await client.read("m1");
+    await expect(client.read("m1")).rejects.toThrow(CALL_LIMIT_MESSAGE);
+    const allFail = (async (url: string) => (url.includes("/messages?")
+      ? Response.json({ messages: [{ id: "m1" }, { id: "m2" }] })
+      : new Response("--r\r\n\r\nHTTP/1.1 429 Too Many\r\n\r\n{}\r\n--r--", { headers: { "Content-Type": "multipart/mixed; boundary=r" } }))) as unknown as typeof fetch;
+    await expect(new GmailClient("token", allFail).search("a", 5)).rejects.toThrow(/could not load/);
   });
 });
 

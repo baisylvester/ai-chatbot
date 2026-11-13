@@ -59,6 +59,13 @@ export function agentModel(maxOutputTokens: number) {
 /** Mail tables are closed to the RLS role; every query in the store is filtered by the user's id. */
 export const mailDb = <T>(fn: (db: DbClient) => Promise<T>) => withTrustedContext(getPool(), fn);
 
+/**
+ * Gmail requests one mailbox session may make. Cloudflare allows 50 outgoing requests per incoming
+ * one on the free plan; this leaves room for the model calls and the token refresh. Past the limit
+ * the agent is told to answer with what it has, instead of the whole request failing.
+ */
+const GMAIL_CALLS_PER_REQUEST = 30;
+
 /** Opens the user's mailbox with a fresh access token, or explains why it can't. */
 export async function openMailbox(userId: string): Promise<{ connection: MailConnection; gmail: GmailClient }> {
   const { oauth, tokenSecret } = mailSetup();
@@ -75,7 +82,7 @@ export async function openMailbox(userId: string): Promise<{ connection: MailCon
     throw new DomainError("forbidden", "Gmail has to be connected again.");
   }
   try {
-    return { connection, gmail: new GmailClient(await refreshAccessToken(oauth, refreshToken)) };
+    return { connection, gmail: new GmailClient(await refreshAccessToken(oauth, refreshToken), fetch, GMAIL_CALLS_PER_REQUEST) };
   } catch (err) {
     if (!(err instanceof MailAuthError)) throw err;
     await mailDb((db) => markRevoked(db, userId));

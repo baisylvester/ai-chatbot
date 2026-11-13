@@ -76,7 +76,7 @@ export async function revokeToken(token: string, fetchFn: FetchFn = fetch): Prom
   }).catch(() => undefined);
 }
 
-export interface MailSummary { id: string; threadId: string; from: string; subject: string; date: string; snippet: string; unread: boolean }
+export interface MailSummary { id: string; threadId: string; from: string; subject: string; date: string; snippet: string; unread: boolean; starred: boolean }
 export interface MailMessage extends MailSummary { to: string; body: string; truncated: boolean }
 export interface DraftInput { to: string; subject: string; body: string; replyToMessageId?: string }
 export interface DraftResult { draftId: string; to: string; subject: string }
@@ -132,7 +132,40 @@ function summarize(message: RawMessage): MailSummary {
     id: message.id, threadId: message.threadId,
     from: header(message, "From"), subject: header(message, "Subject") || "(no subject)", date: header(message, "Date"),
     snippet: message.snippet ?? "", unread: message.labelIds?.includes("UNREAD") ?? false,
+    starred: message.labelIds?.includes("STARRED") ?? false,
   };
+}
+
+/** Thrown when one request has used its share of Gmail calls. The agent passes the text on to the model. */
+export const CALL_LIMIT_MESSAGE = "This request has used all the mailbox lookups allowed for one question. Answer with what you already have and tell the user to ask again for the rest.";
+
+const BATCH_URL = "https://gmail.googleapis.com/batch/gmail/v1";
+const METADATA_QUERY = "format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date";
+
+/** One multipart body asking for the metadata of every id. Gmail answers all of them in a single response. */
+export function buildBatchBody(ids: string[], boundary: string): string {
+  const parts = ids.map((id, index) =>
+    `--${boundary}\r\nContent-Type: application/http\r\nContent-ID: <item${index}>\r\n\r\nGET /gmail/v1/users/me/messages/${id}?${METADATA_QUERY}\r\n\r\n`);
+  return `${parts.join("")}--${boundary}--\r\n`;
+}
+
+/** The messages in a batch response, keyed by id. Parts that failed (deleted mail, rate limits) are left out. */
+export function parseBatchResponse(body: string, boundary: string): Map<string, RawMessage> {
+  const found = new Map<string, RawMessage>();
+  for (const part of body.split(`--${boundary}`)) {
+    const status = part.match(/HTTP\/[\d.]+ (\d{3})/);
+    if (!status || status[1] !== "200") continue;
+    const start = part.indexOf("{", status.index);
+    const end = part.lastIndexOf("}");
+    if (start < 0 || end < start) continue;
+    try {
+      const message = JSON.parse(part.slice(start, end + 1)) as RawMessage;
+      if (typeof message.id === "string") found.set(message.id, message);
+    } catch {
+      // A part that is not JSON is skipped like any other failed part.
+    }
+  }
+  return found;
 }
 
 /** Extracts the address from `Name <a@b.c>` or returns the input when it already is one. */
@@ -178,12 +211,26 @@ export class GmailClient implements MailApi {
   private readonly accessToken: string;
   private readonly fetchFn: FetchFn;
 
-  constructor(accessToken: string, fetchFn: FetchFn = fetch) {
+  private readonly maxCalls: number;
+  private calls = 0;
+
+  /**
+   * `maxCalls` caps the Gmail requests this client makes. Hosts such as Cloudflare Workers allow a
+   * fixed number of outgoing requests per incoming one; past it every request fails, the model's too.
+   */
+  constructor(accessToken: string, fetchFn: FetchFn = fetch, maxCalls = Number.POSITIVE_INFINITY) {
     this.accessToken = accessToken;
     this.fetchFn = fetchFn;
+    this.maxCalls = maxCalls;
+  }
+
+  private spend(): void {
+    if (this.calls >= this.maxCalls) throw new Error(CALL_LIMIT_MESSAGE);
+    this.calls++;
   }
 
   private async call<T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
+    this.spend();
     const response = await this.fetchFn(`${API}${path}`, {
       method: init.method ?? "GET",
       headers: { Authorization: `Bearer ${this.accessToken}`, ...(init.body ? { "Content-Type": "application/json" } : {}) },
@@ -207,9 +254,30 @@ export class GmailClient implements MailApi {
   async search(query: string, max: number): Promise<MailSummary[]> {
     const params = new URLSearchParams({ q: query, maxResults: String(Math.min(Math.max(1, max), 10)) });
     const list = await this.call<{ messages?: { id: string }[] }>(`/messages?${params}`);
-    return Promise.all((list.messages ?? []).map(async ({ id }) => summarize(await this.call<RawMessage>(
-      `/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`,
-    ))));
+    const ids = (list.messages ?? []).map(({ id }) => id).filter((id) => ID.test(id));
+    if (!ids.length) return [];
+    if (ids.length === 1) return [summarize(await this.call<RawMessage>(`/messages/${ids[0]}?${METADATA_QUERY}`))];
+    // One batch request instead of one request per message: a search costs two requests, whatever its size.
+    const found = await this.batchMetadata(ids);
+    return ids.flatMap((id) => { const message = found.get(id); return message ? [summarize(message)] : []; });
+  }
+
+  private async batchMetadata(ids: string[]): Promise<Map<string, RawMessage>> {
+    this.spend();
+    const boundary = `batch_${crypto.randomUUID()}`;
+    const response = await this.fetchFn(BATCH_URL, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${this.accessToken}`, "Content-Type": `multipart/mixed; boundary=${boundary}` },
+      body: buildBatchBody(ids, boundary),
+    });
+    if (response.status === 401) throw new MailAuthError();
+    if (!response.ok) throw new Error(`Gmail request failed (${response.status})`);
+    const replyBoundary = response.headers.get("content-type")?.match(/boundary="?([^";]+)"?/)?.[1];
+    if (!replyBoundary) throw new Error("Gmail returned an unreadable batch response");
+    const found = parseBatchResponse(await response.text(), replyBoundary);
+    // Every part failing (for example all rate limited) is an error, not an empty mailbox.
+    if (!found.size) throw new Error("Gmail could not load the messages it found. Try again.");
+    return found;
   }
 
   async read(id: string): Promise<MailMessage> {

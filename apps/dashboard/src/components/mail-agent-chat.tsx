@@ -27,7 +27,10 @@ export function MailAgentChat({ action }: { action: (history: unknown) => Promis
   function send(message: string) {
     const content = message.trim();
     if (!content || pending) return;
-    const next: Turn[] = [...turns.filter((turn) => !turn.failed), { role: "user", content }];
+    // A failed request is dropped together with the question that caused it, so asking again
+    // does not send the model the same question twice.
+    const kept = turns.filter((turn, index) => !turn.failed && !turns[index + 1]?.failed);
+    const next: Turn[] = [...kept, { role: "user", content }];
     setTurns(next);
     setText("");
     startTransition(async () => {
