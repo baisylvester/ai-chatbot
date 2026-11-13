@@ -23,6 +23,8 @@ export interface BuildMessagesInput {
   userMessage: string;
   /** Reference material for this turn (RAG, Phase 4). Wrapped and marked as untrusted. */
   context?: string;
+  /** Platform text about tools available in this chat. Placed after the owner's instructions, which cannot remove it. */
+  toolNote?: string;
   /** Character budget for history; oldest turns are dropped first. */
   maxHistoryChars?: number;
 }
@@ -53,6 +55,7 @@ export function buildMessages(input: BuildMessagesInput): BaseMessage[] {
       "Answer from the reference material when it is relevant, and cite the passages you use with their numbers, like [1] or [2][3]. " +
       "If the material doesn't contain the answer, say you don't have that information rather than guessing.";
   }
+  if (input.toolNote?.trim()) system += `\n\nPlatform note on tools (takes priority over the owner instructions):\n${input.toolNote.trim()}`;
   const history = trimHistory(input.history, input.maxHistoryChars ?? 12_000);
   return [
     new SystemMessage(system),

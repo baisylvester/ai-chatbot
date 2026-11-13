@@ -23,6 +23,10 @@ interface Turn {
   failures?: Failure[];
   citations?: Citation[];
   streaming?: boolean;
+  /** Email manager activity in this reply. */
+  mailWorking?: boolean;
+  mailSteps?: string[];
+  mailWaiting?: number;
 }
 
 /** Parses a text/event-stream body into (event, data) pairs. */
@@ -49,7 +53,13 @@ async function* readSse(body: ReadableStream<Uint8Array>) {
   }
 }
 
-export function Playground({ chatbotId, welcomeMessage }: { chatbotId: string; welcomeMessage: string }) {
+export function Playground({ chatbotId, welcomeMessage, emailManager = false }: {
+  chatbotId: string;
+  welcomeMessage: string;
+  /** The signed-in user has a connected mailbox, so this chat can offer their email manager. */
+  emailManager?: boolean;
+}) {
+  const [useMail, setUseMail] = useState(emailManager);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [sessionId, setSessionId] = useState<string | undefined>();
   const [input, setInput] = useState("");
@@ -71,7 +81,7 @@ export function Playground({ chatbotId, welcomeMessage }: { chatbotId: string; w
       const res = await fetch(`/api/v1/chatbots/${chatbotId}/playground`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message, sessionId }),
+        body: JSON.stringify({ message, sessionId, ...(emailManager && useMail ? { emailManager: true } : {}) }),
         signal: controller.signal,
       });
       if (!res.ok || !res.body) {
@@ -83,6 +93,15 @@ export function Playground({ chatbotId, welcomeMessage }: { chatbotId: string; w
         if (name === "session") setSessionId(data.sessionId as string);
         else if (name === "sources") updateLast((t) => ({ ...t, citations: data.citations as Citation[] }));
         else if (name === "token") updateLast((t) => ({ ...t, text: t.text + (data.text as string) }));
+        else if (name === "tool") {
+          if (data.phase === "start") updateLast((t) => ({ ...t, mailWorking: true }));
+          else updateLast((t) => ({
+            ...t,
+            mailWorking: false,
+            mailSteps: [...(t.mailSteps ?? []), ...((data.steps as string[] | undefined) ?? [])],
+            mailWaiting: (t.mailWaiting ?? 0) + ((data.waiting as number | undefined) ?? 0),
+          }));
+        }
         else if (name === "done") {
           const usage = data.usage as { inputTokens: number; outputTokens: number } | null;
           const failures = data.failedAttempts as Failure[];
@@ -91,19 +110,20 @@ export function Playground({ chatbotId, welcomeMessage }: { chatbotId: string; w
             usage ? `${usage.inputTokens} in · ${usage.outputTokens} out tokens` : "usage not reported",
             `${((data.latencyMs as number) / 1000).toFixed(1)}s`,
           ];
-          updateLast((t) => ({ ...t, streaming: false, meta: parts.join(" · "), failures: failures.length ? failures : undefined }));
+          updateLast((t) => ({ ...t, streaming: false, mailWorking: false, meta: parts.join(" · "), failures: failures.length ? failures : undefined }));
         } else if (name === "error") {
           updateLast((t) => ({
             ...t,
             streaming: false,
+            mailWorking: false,
             error: data.message as string,
             failures: (data.failedAttempts as Failure[] | undefined)?.length ? (data.failedAttempts as Failure[]) : undefined,
           }));
         }
       }
     } catch (err) {
-      if ((err as Error).name !== "AbortError") updateLast((t) => ({ ...t, streaming: false, error: "Connection lost." }));
-      else updateLast((t) => ({ ...t, streaming: false, error: "Stopped." }));
+      if ((err as Error).name !== "AbortError") updateLast((t) => ({ ...t, streaming: false, mailWorking: false, error: "Connection lost." }));
+      else updateLast((t) => ({ ...t, streaming: false, mailWorking: false, error: "Stopped." }));
     } finally {
       setBusy(false);
       abortRef.current = null;
@@ -118,12 +138,29 @@ export function Playground({ chatbotId, welcomeMessage }: { chatbotId: string; w
 
   return (
     <div className="flex flex-col gap-3">
+      {emailManager && (
+        <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" checked={useMail} onChange={(e) => setUseMail(e.target.checked)} disabled={busy} className="mt-0.5" />
+          <span>
+            Email manager: let this chat work in my Gmail
+            <span className="block text-xs text-zinc-500">
+              Only for you, in this test chat. Website visitors never get mailbox access. Nothing is sent or deleted without your approval on the Mail agent page. Replies are saved under Conversations, where members of this organization can read them.
+            </span>
+          </span>
+        </label>
+      )}
       <div aria-live="polite" className="flex max-h-[28rem] min-h-40 flex-col gap-3 overflow-y-auto rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
         {welcomeMessage && (
           <div className="max-w-[85%] self-start rounded-lg bg-zinc-100 px-3 py-2 text-sm dark:bg-zinc-900">{welcomeMessage}</div>
         )}
         {turns.map((t, i) => (
           <div key={i} className={`flex max-w-[85%] flex-col gap-1 ${t.role === "user" ? "self-end items-end" : "self-start"}`}>
+            {t.mailSteps && t.mailSteps.length > 0 && (
+              <ul className="space-y-0.5 text-xs text-zinc-500">
+                {t.mailSteps.map((step, j) => <li key={j}>✓ {step}</li>)}
+              </ul>
+            )}
+            {t.mailWorking && <span role="status" className="text-xs text-zinc-500">Working in your mailbox…</span>}
             {(t.text || t.streaming) && (
               <div
                 className={`whitespace-pre-wrap rounded-lg px-3 py-2 text-sm ${
@@ -156,6 +193,11 @@ export function Playground({ chatbotId, welcomeMessage }: { chatbotId: string; w
                   ))}
                 </ol>
               </details>
+            )}
+            {!!t.mailWaiting && !t.streaming && (
+              <a href="/agent" className="text-xs font-medium underline">
+                {t.mailWaiting === 1 ? "1 action is" : `${t.mailWaiting} actions are`} waiting for your approval on the Mail agent page
+              </a>
             )}
             {t.meta && <span className="text-xs text-zinc-500">{t.meta}</span>}
             {t.error && (

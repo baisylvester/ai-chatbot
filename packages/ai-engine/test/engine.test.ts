@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { AIMessageChunk, HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { AIMessageChunk, HumanMessage, SystemMessage, ToolMessage, type BaseMessage } from "@langchain/core/messages";
 import { ChatGenerationChunk } from "@langchain/core/outputs";
 import { FakeStreamingChatModel } from "@langchain/core/utils/testing";
-import { buildMessages, PLATFORM_PREAMBLE, streamReply, trimHistory, type EngineEvent, type ModelCandidate } from "../src/index.ts";
+import { buildMessages, PLATFORM_PREAMBLE, streamReply, trimHistory, type EngineEvent, type EngineTool, type ModelCandidate } from "../src/index.ts";
 
 async function collect(gen: AsyncGenerator<EngineEvent>) {
   const events: EngineEvent[] = [];
@@ -163,5 +163,86 @@ describe("streamReply", () => {
     }
     expect(events.at(-1)).toMatchObject({ type: "error", reason: "cancelled" });
     expect(events.some((e) => e.type === "start" && e.provider === "b")).toBe(false);
+  });
+});
+
+/** Replays one scripted list of chunks per model call and records what each call was sent. */
+class ScriptedTools extends FakeStreamingChatModel {
+  readonly seen: BaseMessage[][] = [];
+  boundTools = 0;
+  private readonly rounds: AIMessageChunk[][];
+  constructor(rounds: AIMessageChunk[][]) {
+    super({});
+    this.rounds = rounds;
+  }
+  override bindTools(tools: unknown[]) { this.boundTools = tools.length; return this; }
+  override async *_streamResponseChunks(messages: BaseMessage[]): AsyncGenerator<ChatGenerationChunk> {
+    this.seen.push([...messages]);
+    const round = this.rounds.shift();
+    if (!round) throw new Error("no more scripted rounds");
+    for (const message of round) yield new ChatGenerationChunk({ text: typeof message.content === "string" ? message.content : "", message });
+  }
+}
+const toolCall = (name: string, args: Record<string, unknown>, id = "call1") =>
+  new AIMessageChunk({ content: "", tool_call_chunks: [{ name, args: JSON.stringify(args), id, index: 0, type: "tool_call_chunk" }] });
+const usageChunk = (text: string, input: number, output: number) =>
+  new AIMessageChunk({ content: text, usage_metadata: { input_tokens: input, output_tokens: output, total_tokens: input + output } });
+
+describe("streamReply with tools", () => {
+  const messages = [new HumanMessage("any new mail?")];
+  const mailTool = (run: EngineTool["run"]): EngineTool => ({ name: "email_manager", description: "mail", schema: { type: "object", properties: { request: { type: "string" } } }, run });
+
+  it("runs a tool call, sends the result back and streams the answer", async () => {
+    const model = new ScriptedTools([
+      [usageChunk("Checking.", 10, 3), toolCall("email_manager", { request: "list new mail" })],
+      [usageChunk("You have 2 new emails.", 30, 6)],
+    ]);
+    const asked: unknown[] = [];
+    const tool = mailTool(async (args) => { asked.push(args); return { content: '{"answer":"2 new"}', steps: ["Searched \"is:unread\" (2 found)"], waiting: 1 }; });
+    const events = await collect(streamReply({ candidates: [{ provider: "a", model: "m", create: () => model }], messages, tools: [tool] }));
+
+    expect(model.boundTools).toBe(1);
+    expect(asked).toEqual([{ request: "list new mail" }]);
+    expect(events.map((e) => e.type)).toEqual(["start", "token", "tool", "tool", "token", "token", "done"]);
+    expect(events[3]).toEqual({ type: "tool", name: "email_manager", phase: "end", steps: ["Searched \"is:unread\" (2 found)"], waiting: 1, failed: false });
+    const done = events.at(-1) as Extract<EngineEvent, { type: "done" }>;
+    expect(done.text).toBe("Checking.\n\nYou have 2 new emails.");
+    expect(done.usage).toEqual({ inputTokens: 40, outputTokens: 9 });
+    // The second call saw the model's tool call and the tool's result.
+    const second = model.seen[1]!;
+    expect(second.at(-1)).toBeInstanceOf(ToolMessage);
+    expect(second.at(-1)!.content).toBe('{"answer":"2 new"}');
+  });
+
+  it("tells the model when a tool fails or is unknown, and does not fall back afterwards", async () => {
+    const model = new ScriptedTools([[toolCall("email_manager", {})], [toolCall("nope", {}, "call2")], [new AIMessageChunk("Sorry, that failed.")]]);
+    const tool = mailTool(async () => { throw new Error("Gmail is down"); });
+    const events = await collect(streamReply({ candidates: [{ provider: "a", model: "m", create: () => model }, ok("b", ["Hi"])], messages, tools: [tool] }));
+    expect(events.filter((e) => e.type === "tool" && e.phase === "end").map((e) => (e as { failed: boolean }).failed)).toEqual([true, true]);
+    expect(String(model.seen[1]!.at(-1)!.content)).toContain("Gmail is down");
+    expect(events.at(-1)).toMatchObject({ type: "done", text: "Sorry, that failed.", provider: "a" });
+
+    const broken = new ScriptedTools([[toolCall("email_manager", {})]]); // nothing scripted after the tool: the next call throws
+    const after = await collect(streamReply({ candidates: [{ provider: "a", model: "m", create: () => broken }, ok("b", ["Hi"])], messages, tools: [mailTool(async () => ({ content: "{}" }))] }));
+    expect(after.at(-1)).toMatchObject({ type: "error", reason: "interrupted", provider: "a" });
+    expect(after.some((e) => e.type === "start" && e.provider === "b")).toBe(false);
+  });
+
+  it("stops offering tools after three rounds, and offers none when no tools are passed", async () => {
+    const loop = new ScriptedTools([[toolCall("email_manager", {}, "c1")], [toolCall("email_manager", {}, "c2")], [toolCall("email_manager", {}, "c3")], [toolCall("email_manager", {}, "c4"), new AIMessageChunk("Done.")]]);
+    let runs = 0;
+    const events = await collect(streamReply({ candidates: [{ provider: "a", model: "m", create: () => loop }], messages, tools: [mailTool(async () => { runs++; return { content: "{}" }; })] }));
+    expect(runs).toBe(3);
+    expect(events.at(-1)).toMatchObject({ type: "done", text: "Done." });
+
+    const plain = new ScriptedTools([[new AIMessageChunk("Hello")]]);
+    await collect(streamReply({ candidates: [{ provider: "a", model: "m", create: () => plain }], messages }));
+    expect(plain.boundTools).toBe(0);
+  });
+
+  it("adds the platform's tool note after the owner instructions", () => {
+    const system = String(buildMessages({ systemPrompt: "Only talk about shoes.", history: [], userMessage: "hi", toolNote: "Use email_manager for mail." })[0]!.content);
+    expect(system.indexOf("Only talk about shoes.")).toBeLessThan(system.indexOf("Use email_manager for mail."));
+    expect(String(buildMessages({ systemPrompt: "", history: [], userMessage: "hi" })[0]!.content)).not.toContain("Platform note on tools");
   });
 });

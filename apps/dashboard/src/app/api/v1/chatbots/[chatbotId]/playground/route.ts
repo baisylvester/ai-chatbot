@@ -10,6 +10,7 @@ import { withTrustedContext, withUserContext } from "@chatbot/database";
 import { getPool } from "@/lib/db";
 import { readJson } from "@/lib/public-api";
 import { retrieverFor } from "@/lib/knowledge";
+import { EMAIL_MANAGER_NOTE, emailManagerReady, emailManagerTool } from "@/lib/mail-agent";
 import { rateLimit } from "@/lib/rate-limit";
 import { getCurrentUser } from "@/lib/session";
 
@@ -19,6 +20,8 @@ export const dynamic = "force-dynamic";
 const bodySchema = z.object({
   message: z.string().trim().min(1, "Type a message first").max(MAX_USER_MESSAGE_CHARS),
   sessionId: z.uuid().optional(),
+  /** Let the chatbot use the signed-in user's own mailbox in this test chat (see emailManagerTool). */
+  emailManager: z.boolean().optional(),
 });
 
 const json = (status: number, error: string, headers?: Record<string, string>) =>
@@ -35,6 +38,10 @@ function toClientEvent(e: TurnEvent): { event: string; data: unknown } {
       return { event: "start", data: { provider: e.provider, model: e.model } };
     case "token":
       return { event: "token", data: { text: e.text } };
+    case "tool":
+      return e.phase === "start"
+        ? { event: "tool", data: { name: e.name, phase: "start" } }
+        : { event: "tool", data: { name: e.name, phase: "end", steps: e.steps, waiting: e.waiting, failed: e.failed } };
     case "done":
       return {
         event: "done",
@@ -84,6 +91,11 @@ export async function POST(request: Request, ctx: { params: Promise<{ chatbotId:
     throw err;
   }
 
+  // The mailbox is the signed-in user's own. This route is the only chat that may get it: widget and
+  // REST API turns serve other people and never receive tools.
+  const useMail = parsed.data.emailManager === true && (await emailManagerReady(user.id));
+  if (parsed.data.emailManager === true && !useMail) return json(409, "The email manager is not available. Connect Gmail on the Mail agent page first.");
+
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -107,6 +119,7 @@ export async function POST(request: Request, ctx: { params: Promise<{ chatbotId:
           env: process.env,
           signal: request.signal,
           retrieve: retrieverFor(chatbot),
+          ...(useMail ? { tools: [emailManagerTool(user.id)], toolNote: EMAIL_MANAGER_NOTE } : {}),
         })) {
           const { event, data } = toClientEvent(e);
           send(event, data);

@@ -13,7 +13,8 @@ import { AutoRefresh } from "@/components/auto-refresh";
 import { getEmbedder } from "@/lib/knowledge";
 import { Breadcrumbs, Card, Section } from "@/components/ui";
 import { orNotFound } from "@/lib/load";
-import { asUser } from "@/lib/session";
+import { emailManagerReady } from "@/lib/mail-agent";
+import { asUser, requireUser } from "@/lib/session";
 import { setChatbotStatusAction, updateChatbotAction } from "../../actions";
 import { createSourceAction, setAssignmentAction, uploadFileAction } from "../../knowledge-actions";
 
@@ -36,6 +37,8 @@ export default async function ChatbotPage({ params }: { params: Promise<{ chatbo
     }),
   );
   const canEdit = org.role === "owner" || org.role === "admin";
+  // The test chat can use the signed-in user's own mailbox when they have connected one.
+  const emailManager = canEdit && (await emailManagerReady((await requireUser()).id));
   const { embedder } = getEmbedder();
   const s = bot.settings;
   const h = await headers();
@@ -211,7 +214,7 @@ export default async function ChatbotPage({ params }: { params: Promise<{ chatbo
           title="Test chat"
           description="Talk to this chatbot with its current saved settings. Test conversations are stored and count toward usage."
         >
-          <Playground chatbotId={bot.id} welcomeMessage={s.welcomeMessage} />
+          <Playground chatbotId={bot.id} welcomeMessage={s.welcomeMessage} emailManager={emailManager} />
         </Section>
       )}
 

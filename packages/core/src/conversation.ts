@@ -7,7 +7,7 @@
  * to `chatbot` (e.g. loaded it in the user's RLS context, or resolved it from a validated embed session).
  */
 import type { DbClient } from "@chatbot/database";
-import { buildMessages, streamReply, type EngineEvent, type HistoryMessage, type ModelCandidate } from "@chatbot/ai-engine";
+import { buildMessages, streamReply, type EngineEvent, type EngineTool, type HistoryMessage, type ModelCandidate } from "@chatbot/ai-engine";
 import { createChatModel, type ProviderEnv } from "@chatbot/ai-providers";
 import type { ChatbotSettings } from "@chatbot/shared";
 import { z } from "zod";
@@ -106,6 +106,12 @@ export async function* runConversationTurn(params: {
   retrieve?: (query: string) => Promise<RetrievedChunk[]>;
   /** For tests: replaces the model list built from settings. */
   candidates?: ModelCandidate[];
+  /**
+   * Tools for this turn, with a note telling the model when to use them. The caller decides who gets
+   * them: never pass a signed-in user's tools on a turn that serves an anonymous visitor.
+   */
+  tools?: EngineTool[];
+  toolNote?: string;
 }): AsyncGenerator<TurnEvent> {
   const message = params.message.trim();
   if (!message) throw new DomainError("invalid", "Type a message first");
@@ -140,11 +146,12 @@ export async function* runConversationTurn(params: {
     history,
     userMessage: message,
     context: chunks.length ? formatContext(chunks.map((c) => ({ title: c.title, content: c.content }))) : undefined,
+    toolNote: params.tools?.length ? params.toolNote : undefined,
   });
   const candidates = params.candidates ?? modelCandidates(chatbot.settings, params.env);
 
   let final: EngineEvent | undefined;
-  for await (const event of streamReply({ candidates, messages, signal: params.signal })) {
+  for await (const event of streamReply({ candidates, messages, signal: params.signal, tools: params.tools })) {
     if (event.type === "done" || event.type === "error") final = event;
     yield event;
   }
