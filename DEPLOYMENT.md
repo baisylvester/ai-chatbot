@@ -109,6 +109,7 @@ A signed-in user connects their Gmail and asks a Gemini Flash agent to summarize
 | `MAIL_TOKEN_SECRET` | 32+ random characters; encrypts mailbox tokens in the database. Changing it disconnects every mailbox |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | Web Push key pair for notifications. `VAPID_SUBJECT` is optional (defaults to the platform URL) |
 | `MAIL_AGENT_PROVIDER`, `MAIL_AGENT_MODEL` | Optional. Default `gemini` / `gemini-flash-latest` |
+| `MAIL_AGENT_PROVIDER=openai-compatible` | Self-hosted alternative, for example `MAIL_AGENT_MODEL=qwen3:8b`. Requires `OPENAI_COMPATIBLE_BASE_URL` (and `OPENAI_COMPATIBLE_API_KEY` if the server needs one). The server must support OpenAI-style tool calling. Production (Cloudflare) cannot reach `localhost`, so the URL must be a publicly reachable HTTPS host protected by auth. Keep Gemini as the production default unless that endpoint has been checked for quality |
 
 Set every one of them on **both** the Pages project and the Worker: the Worker's 10-minute cron is what checks for new mail and sends notifications.
 
