@@ -342,3 +342,24 @@ export async function setChatbotStatus(db: DbClient, chatbotId: string, status: 
   if (r.rowCount === 0) throw new DomainError("forbidden", "You don't have permission to do that");
   await audit(db, bot.organization_id, `chatbot.status.${s}`, "chatbot", bot.id);
 }
+
+export interface ManagedChatbot { id: string; name: string; organization: string }
+
+/**
+ * Chatbots the user may chat with from the dashboard: those in organizations where they are an
+ * owner or admin (the same rule as the test chat), archived ones left out.
+ */
+export async function listManagedChatbots(db: DbClient, userId: string): Promise<ManagedChatbot[]> {
+  return (
+    await db.query<ManagedChatbot>(
+      `select c.id, coalesce(nullif(s.settings->>'name', ''), 'Chatbot') as name, o.name as organization
+       from chatbots c
+       join chatbot_settings s on s.chatbot_id = c.id
+       join organizations o on o.id = c.organization_id
+       join organization_members m on m.organization_id = c.organization_id and m.user_id = $1
+       where m.role in ('owner', 'admin') and c.status <> 'archived'
+       order by c.created_at`,
+      [parse(id, userId)],
+    )
+  ).rows;
+}

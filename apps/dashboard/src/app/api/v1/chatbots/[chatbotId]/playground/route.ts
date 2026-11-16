@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
 const bodySchema = z.object({
   message: z.string().trim().min(1, "Type a message first").max(MAX_USER_MESSAGE_CHARS),
   sessionId: z.uuid().optional(),
-  /** Let the chatbot use the signed-in user's own mailbox in this test chat (see emailManagerTool). */
+  /** Sent by the Assistant page: let the chatbot work in the signed-in user's own mailbox (see emailManagerTool). */
   emailManager: z.boolean().optional(),
 });
 
@@ -94,7 +94,7 @@ export async function POST(request: Request, ctx: { params: Promise<{ chatbotId:
   // The mailbox is the signed-in user's own. This route is the only chat that may get it: widget and
   // REST API turns serve other people and never receive tools.
   const useMail = parsed.data.emailManager === true && (await emailManagerReady(user.id));
-  if (parsed.data.emailManager === true && !useMail) return json(409, "The email manager is not available. Connect Gmail on the Mail agent page first.");
+  if (parsed.data.emailManager === true && !useMail) return json(409, "The email manager is not available. Connect Gmail on the Assistant page first.");
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({

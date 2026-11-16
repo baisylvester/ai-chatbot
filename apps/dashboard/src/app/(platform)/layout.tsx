@@ -19,7 +19,7 @@ export default async function PlatformLayout({ children }: { children: ReactNode
               Chatbots
             </Link>
             <Link href="/agent" className="rounded-md px-2 py-1 hover:bg-zinc-100 dark:hover:bg-zinc-900">
-              Mail agent
+              Assistant
             </Link>
             <span className="hidden text-zinc-500 md:inline">{user.email}</span>
             <form action={signOutAction}>

@@ -1,14 +1,17 @@
 import type { Metadata } from "next";
+import Link from "next/link";
+import { listManagedChatbots } from "@chatbot/core";
 import { getConnection, listNotifications, listPendingActions, type SendPayload, type TrashPayload } from "@chatbot/mail-agent";
+import { AssistantChat } from "@/components/assistant-chat";
 import { MailAgentChat } from "@/components/mail-agent-chat";
 import { MailApprovals, type ApprovalItem } from "@/components/mail-approvals";
 import { PushToggle } from "@/components/push-toggle";
 import { Card, Section } from "@/components/ui";
 import { mailDb, mailSetup } from "@/lib/mail-agent";
-import { requireUser } from "@/lib/session";
+import { asUser, requireUser } from "@/lib/session";
 import { approveAction, chatAction, disconnectAction, rejectAction, removePushAction, savePushAction } from "./actions";
 
-export const metadata: Metadata = { title: "Mail agent" };
+export const metadata: Metadata = { title: "Assistant" };
 
 const NOTICES: Record<string, string> = {
   setup: "Gmail can't be connected yet: the server is missing its Google sign-in settings.",
@@ -33,6 +36,9 @@ export default async function AgentPage({ searchParams }: { searchParams: Promis
     };
   });
   const active = connection?.status === "active";
+  // The chatbots this user manages: one of them answers in the chat, with their mailbox when connected.
+  const chatbots = await asUser((db) => listManagedChatbots(db, user.id));
+  const mailReady = active && setup.modelReady;
   const approvals: ApprovalItem[] = pending.map((action) => ({
     id: action.id, kind: action.kind, summary: action.summary,
     preview: action.kind === "send" ? (action.payload as SendPayload).preview : undefined,
@@ -41,9 +47,9 @@ export default async function AgentPage({ searchParams }: { searchParams: Promis
 
   return (
     <>
-      <h1 className="text-2xl font-semibold">Mail agent</h1>
+      <h1 className="text-2xl font-semibold">Assistant</h1>
       <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-        Reads, sorts and drafts in your Gmail. It never sends or deletes anything until you approve it here.
+        One chat for your questions and your Gmail. It answers with your chatbot&apos;s knowledge, and reads, sorts and drafts in your mailbox. It never sends or deletes anything until you approve it here.
       </p>
 
       {params.error && NOTICES[params.error] && (
@@ -54,7 +60,7 @@ export default async function AgentPage({ searchParams }: { searchParams: Promis
       )}
 
       {setup.missing.length > 0 && (
-        <Section title="Setup needed" description="The site owner has to add these server settings before the agent can work. See DEPLOYMENT.md, “Mail agent”.">
+        <Section title="Setup needed" description="The site owner has to add these server settings before the agent can work. See DEPLOYMENT.md, “Mail agent”. Until then the assistant answers questions but cannot work in a mailbox.">
           <ul className="list-disc pl-5 text-sm">
             {setup.missing.map((name) => <li key={name}><code>{name}</code></li>)}
           </ul>
@@ -85,18 +91,39 @@ export default async function AgentPage({ searchParams }: { searchParams: Promis
       </Section>
 
       {active && (
+        <Section title="Waiting for your approval">
+          <MailApprovals items={approvals} approve={approveAction} reject={rejectAction} />
+        </Section>
+      )}
+
+      <Section
+        title="Ask the assistant"
+        description={chatbots.length > 0
+          ? `${mailReady ? "Ask anything, or tell it what to do in your mail." : "Ask anything. Connect Gmail above to let it work in your mail too."} Only you get mailbox access: visitors of your websites never do. Conversations here are saved under Conversations, where members of the organization can read them.`
+          : undefined}
+      >
+        {chatbots.length > 0 ? (
+          <AssistantChat chatbots={chatbots} mailbox={mailReady} />
+        ) : mailReady ? (
+          <>
+            <MailAgentChat action={chatAction} />
+            <p className="mt-2 text-sm text-zinc-500">
+              This chat only handles mail. <Link href="/orgs" className="underline">Create a chatbot</Link> to have the assistant answer other questions too.
+            </p>
+          </>
+        ) : (
+          <p className="text-sm text-zinc-500">
+            {active
+              ? "The assistant's AI model is not configured on this server yet."
+              : <>Connect Gmail above, or <Link href="/orgs" className="underline">create a chatbot</Link>, to start chatting.</>}
+          </p>
+        )}
+      </Section>
+
+      {active && (
         <>
-          <Section title="Waiting for your approval">
-            <MailApprovals items={approvals} approve={approveAction} reject={rejectAction} />
-          </Section>
 
-          <Section title="Ask the agent">
-            {setup.modelReady
-              ? <MailAgentChat action={chatAction} />
-              : <p className="text-sm text-zinc-500">The agent&apos;s AI model is not configured on this server yet.</p>}
-          </Section>
-
-          <Section title="Notifications" description="The agent checks for new mail about every 10 minutes and tells you what needs attention. Install this page as an app (browser menu → Install or Add to Home screen) to get notifications like any other app.">
+          <Section title="Notifications" description="The assistant checks for new mail about every 10 minutes and tells you what needs attention. Install this page as an app (browser menu → Install or Add to Home screen) to get notifications like any other app.">
             <PushToggle vapidPublicKey={setup.vapid?.publicKey ?? null} save={savePushAction} remove={removePushAction} />
             {notifications.length > 0 && (
               <ul className="mt-4 divide-y divide-zinc-200 rounded-lg border border-zinc-200 text-sm dark:divide-zinc-800 dark:border-zinc-800">

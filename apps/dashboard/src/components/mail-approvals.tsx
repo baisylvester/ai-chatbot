@@ -26,7 +26,7 @@ export function MailApprovals({ items, approve, reject }: {
     });
   }
 
-  if (!items.length) return <p className="text-sm text-zinc-500">Nothing is waiting. Emails the agent drafts and messages it wants to trash appear here for you to approve.</p>;
+  if (!items.length) return <p className="text-sm text-zinc-500">Nothing is waiting. Emails the assistant drafts and messages it wants to trash appear here for you to approve.</p>;
   return (
     <ul className="space-y-3">
       {items.map((item) => (

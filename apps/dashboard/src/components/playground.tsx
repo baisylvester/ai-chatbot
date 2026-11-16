@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useRef, useState, type FormEvent } from "react";
 
 interface Failure {
@@ -53,13 +54,19 @@ async function* readSse(body: ReadableStream<Uint8Array>) {
   }
 }
 
-export function Playground({ chatbotId, welcomeMessage, emailManager = false }: {
+export function Playground({ chatbotId, welcomeMessage, emailManager = false, suggestions = [], placeholder = "Ask your chatbot something" }: {
   chatbotId: string;
   welcomeMessage: string;
-  /** The signed-in user has a connected mailbox, so this chat can offer their email manager. */
+  /**
+   * Assistant page only: the chat may work in the signed-in user's own mailbox. The chatbot's
+   * test chat leaves this off, so it shows what website visitors get.
+   */
   emailManager?: boolean;
+  /** One-tap first questions, shown while the chat is empty. */
+  suggestions?: string[];
+  placeholder?: string;
 }) {
-  const [useMail, setUseMail] = useState(emailManager);
+  const router = useRouter();
   const [turns, setTurns] = useState<Turn[]>([]);
   const [sessionId, setSessionId] = useState<string | undefined>();
   const [input, setInput] = useState("");
@@ -68,9 +75,13 @@ export function Playground({ chatbotId, welcomeMessage, emailManager = false }: 
 
   const updateLast = (fn: (t: Turn) => Turn) => setTurns((ts) => [...ts.slice(0, -1), fn(ts.at(-1)!)]);
 
-  async function send(event: FormEvent) {
+  function submit(event: FormEvent) {
     event.preventDefault();
-    const message = input.trim();
+    void send(input);
+  }
+
+  async function send(raw: string) {
+    const message = raw.trim();
     if (!message || busy) return;
     setInput("");
     setBusy(true);
@@ -81,7 +92,7 @@ export function Playground({ chatbotId, welcomeMessage, emailManager = false }: 
       const res = await fetch(`/api/v1/chatbots/${chatbotId}/playground`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message, sessionId, ...(emailManager && useMail ? { emailManager: true } : {}) }),
+        body: JSON.stringify({ message, sessionId, ...(emailManager ? { emailManager: true } : {}) }),
         signal: controller.signal,
       });
       if (!res.ok || !res.body) {
@@ -95,12 +106,16 @@ export function Playground({ chatbotId, welcomeMessage, emailManager = false }: 
         else if (name === "token") updateLast((t) => ({ ...t, text: t.text + (data.text as string) }));
         else if (name === "tool") {
           if (data.phase === "start") updateLast((t) => ({ ...t, mailWorking: true }));
-          else updateLast((t) => ({
-            ...t,
-            mailWorking: false,
-            mailSteps: [...(t.mailSteps ?? []), ...((data.steps as string[] | undefined) ?? [])],
-            mailWaiting: (t.mailWaiting ?? 0) + ((data.waiting as number | undefined) ?? 0),
-          }));
+          else {
+            updateLast((t) => ({
+              ...t,
+              mailWorking: false,
+              mailSteps: [...(t.mailSteps ?? []), ...((data.steps as string[] | undefined) ?? [])],
+              mailWaiting: (t.mailWaiting ?? 0) + ((data.waiting as number | undefined) ?? 0),
+            }));
+            // Drafts and trash requests show up under "Waiting for your approval" on the page.
+            if ((data.waiting as number | undefined) ?? 0) router.refresh();
+          }
         }
         else if (name === "done") {
           const usage = data.usage as { inputTokens: number; outputTokens: number } | null;
@@ -138,20 +153,19 @@ export function Playground({ chatbotId, welcomeMessage, emailManager = false }: 
 
   return (
     <div className="flex flex-col gap-3">
-      {emailManager && (
-        <label className="flex items-start gap-2 text-sm">
-          <input type="checkbox" checked={useMail} onChange={(e) => setUseMail(e.target.checked)} disabled={busy} className="mt-0.5" />
-          <span>
-            Email manager: let this chat work in my Gmail
-            <span className="block text-xs text-zinc-500">
-              Only for you, in this test chat. Website visitors never get mailbox access. Nothing is sent or deleted without your approval on the Mail agent page. Replies are saved under Conversations, where members of this organization can read them.
-            </span>
-          </span>
-        </label>
-      )}
       <div aria-live="polite" className="flex max-h-[28rem] min-h-40 flex-col gap-3 overflow-y-auto rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
         {welcomeMessage && (
           <div className="max-w-[85%] self-start rounded-lg bg-zinc-100 px-3 py-2 text-sm dark:bg-zinc-900">{welcomeMessage}</div>
+        )}
+        {turns.length === 0 && suggestions.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {suggestions.map((suggestion) => (
+              <button key={suggestion} type="button" onClick={() => void send(suggestion)} disabled={busy}
+                className="rounded-full border border-zinc-300 px-3 py-1.5 text-left text-sm hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900">
+                {suggestion}
+              </button>
+            ))}
+          </div>
         )}
         {turns.map((t, i) => (
           <div key={i} className={`flex max-w-[85%] flex-col gap-1 ${t.role === "user" ? "self-end items-end" : "self-start"}`}>
@@ -195,9 +209,9 @@ export function Playground({ chatbotId, welcomeMessage, emailManager = false }: 
               </details>
             )}
             {!!t.mailWaiting && !t.streaming && (
-              <a href="/agent" className="text-xs font-medium underline">
-                {t.mailWaiting === 1 ? "1 action is" : `${t.mailWaiting} actions are`} waiting for your approval on the Mail agent page
-              </a>
+              <span className="text-xs font-medium">
+                {t.mailWaiting === 1 ? "1 action is" : `${t.mailWaiting} actions are`} waiting for your approval at the top of this page.
+              </span>
             )}
             {t.meta && <span className="text-xs text-zinc-500">{t.meta}</span>}
             {t.error && (
@@ -217,7 +231,7 @@ export function Playground({ chatbotId, welcomeMessage, emailManager = false }: 
           </div>
         ))}
       </div>
-      <form onSubmit={send} className="flex gap-2">
+      <form onSubmit={submit} className="flex gap-2">
         <label htmlFor="playground-input" className="sr-only">
           Message
         </label>
@@ -226,7 +240,7 @@ export function Playground({ chatbotId, welcomeMessage, emailManager = false }: 
           value={input}
           onChange={(e) => setInput(e.target.value)}
           maxLength={4000}
-          placeholder="Ask your chatbot something"
+          placeholder={placeholder}
           className="min-w-0 flex-1 rounded-md border border-zinc-300 bg-transparent px-2 py-1.5 text-sm dark:border-zinc-700"
         />
         {busy ? (

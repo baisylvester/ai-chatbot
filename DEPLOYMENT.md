@@ -100,7 +100,7 @@ The same OpenNext build runs on Cloudflare Pages (project `ai-chatbot`) and on t
 
 ## Mail agent (`/agent`)
 
-A signed-in user connects their Gmail and asks a Gemini Flash agent to summarize, search, sort and draft. Sending and moving to Trash only happen when the user presses the approve button. The page works on phones and desktops and can be installed as an app (browser menu → Install / Add to Home screen), which is also how notifications reach the device.
+A signed-in user connects their Gmail and asks the assistant to summarize, search, sort and draft (Gemini Flash by default). Sending and moving to Trash only happen when the user presses the approve button. The page works on phones and desktops and can be installed as an app (browser menu → Install / Add to Home screen), which is also how notifications reach the device.
 
 | Variable | Notes |
 |---|---|
@@ -111,7 +111,7 @@ A signed-in user connects their Gmail and asks a Gemini Flash agent to summarize
 | `MAIL_AGENT_PROVIDER`, `MAIL_AGENT_MODEL` | Optional. Default `gemini` / `gemini-flash-latest` |
 | `MAIL_AGENT_PROVIDER=openai-compatible` | Self-hosted alternative, for example `MAIL_AGENT_MODEL=qwen3:8b`. Requires `OPENAI_COMPATIBLE_BASE_URL` (and `OPENAI_COMPATIBLE_API_KEY` if the server needs one). The server must support OpenAI-style tool calling. Production (Cloudflare) cannot reach `localhost`, so the URL must be a publicly reachable HTTPS host protected by auth. Keep Gemini as the production default unless that endpoint has been checked for quality |
 
-**Email manager in a chatbot's test chat.** When the signed-in user has connected Gmail, the Test chat on a chatbot's page shows an "Email manager" checkbox. With it on, the chatbot can hand mail requests to the mail agent, which works in that user's own mailbox. It needs no extra settings, and the chatbot's model must support tool calling. Only the dashboard test chat gets this: the website widget and the REST API never receive mailbox tools, because they serve other people. Test-chat replies are stored under Conversations, where members of the organization can read them.
+**One Assistant page.** `/agent` is the Assistant: one chat where one of the user's chatbots answers (owners and admins pick which, when they have several) and, once Gmail is connected, the same chat works in that user's own mailbox through the mail agent. Approvals, the Gmail connection and notifications are on that page. It needs no extra settings; the chatbot's model must support tool calling. Without a chatbot the page falls back to a mail-only chat. Only this signed-in page gets mailbox tools: the chatbot's Test chat, the website widget and the REST API never do, because they show or serve what other people get. Assistant conversations are stored under Conversations, where members of the organization can read them.
 
 Set every one of them on **both** the Pages project and the Worker: the Worker's 10-minute cron is what checks for new mail and sends notifications.
 
