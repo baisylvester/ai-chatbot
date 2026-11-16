@@ -30,6 +30,9 @@ for (const name of readdirSync(worker)) if (name.endsWith(".map") || name === "R
 const statics = readdirSync(dist, { withFileTypes: true })
   .filter((item) => item.name !== "_worker.js")
   .map((item) => (item.isDirectory() ? `/${item.name}/*` : `/${item.name}`));
+// Browsers ask for /favicon.ico on their own. There is none (the icon is icon.svg), so let Pages
+// answer that 404 itself instead of starting the worker for it.
+statics.push("/favicon.ico");
 writeFileSync(join(dist, "_routes.json"), JSON.stringify({ version: 1, include: ["/*"], exclude: statics }, null, 2));
 // Same headers next.config.ts sets for the widget script.
 writeFileSync(join(dist, "_headers"), [

@@ -89,17 +89,26 @@ export function Playground({ chatbotId, welcomeMessage, emailManager = false, su
     const controller = new AbortController();
     abortRef.current = controller;
     try {
-      const res = await fetch(`/api/v1/chatbots/${chatbotId}/playground`, {
+      const request = () => fetch(`/api/v1/chatbots/${chatbotId}/playground`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message, sessionId, ...(emailManager ? { emailManager: true } : {}) }),
         signal: controller.signal,
       });
+      let res = await request();
+      // 503 with no stream means the host refused to start the request (for example a resource limit
+      // on a cold start). Nothing ran, so one retry is safe.
+      if (res.status === 503) {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        if (!controller.signal.aborted) res = await request();
+      }
       if (!res.ok || !res.body) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
-        updateLast((t) => ({ ...t, streaming: false, error: body.error ?? `Request failed (${res.status})` }));
+        const fallback = res.status === 503 ? "The server was busy and could not start this reply. Please try again in a moment." : `Request failed (${res.status})`;
+        updateLast((t) => ({ ...t, streaming: false, error: body.error ?? fallback }));
         return;
       }
+      let finished = false;
       for await (const { event: name, data } of readSse(res.body)) {
         if (name === "session") setSessionId(data.sessionId as string);
         else if (name === "sources") updateLast((t) => ({ ...t, citations: data.citations as Citation[] }));
@@ -118,6 +127,7 @@ export function Playground({ chatbotId, welcomeMessage, emailManager = false, su
           }
         }
         else if (name === "done") {
+          finished = true;
           const usage = data.usage as { inputTokens: number; outputTokens: number } | null;
           const failures = data.failedAttempts as Failure[];
           const parts = [
@@ -127,6 +137,7 @@ export function Playground({ chatbotId, welcomeMessage, emailManager = false, su
           ];
           updateLast((t) => ({ ...t, streaming: false, mailWorking: false, meta: parts.join(" · "), failures: failures.length ? failures : undefined }));
         } else if (name === "error") {
+          finished = true;
           updateLast((t) => ({
             ...t,
             streaming: false,
@@ -135,6 +146,15 @@ export function Playground({ chatbotId, welcomeMessage, emailManager = false, su
             failures: (data.failedAttempts as Failure[] | undefined)?.length ? (data.failedAttempts as Failure[]) : undefined,
           }));
         }
+      }
+      // The stream closed without saying it was done: the server stopped mid-reply.
+      if (!finished) {
+        updateLast((t) => ({
+          ...t, streaming: false, mailWorking: false,
+          error: emailManager
+            ? "The reply was cut off before it finished. If it was working in your mail, ask what was done before repeating the request."
+            : "The reply was cut off before it finished. Please try again.",
+        }));
       }
     } catch (err) {
       if ((err as Error).name !== "AbortError") updateLast((t) => ({ ...t, streaming: false, mailWorking: false, error: "Connection lost." }));

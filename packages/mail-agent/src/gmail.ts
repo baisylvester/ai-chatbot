@@ -80,7 +80,7 @@ export interface MailSummary { id: string; threadId: string; from: string; subje
 export interface MailMessage extends MailSummary { to: string; body: string; truncated: boolean }
 export interface DraftInput { to: string; subject: string; body: string; replyToMessageId?: string }
 export interface DraftResult { draftId: string; to: string; subject: string }
-export type OrganizeAction = "archive" | "mark_read" | "mark_unread" | "star" | "unstar";
+export type OrganizeAction = "archive" | "move_to_inbox" | "mark_read" | "mark_unread" | "star" | "unstar";
 
 /** What the agent needs from a mailbox. GmailClient implements it; tests use a fake. */
 export interface MailApi {
@@ -201,6 +201,7 @@ export function buildMime(input: { to: string; subject: string; body: string; in
 
 const LABEL_CHANGES: Record<OrganizeAction, { addLabelIds?: string[]; removeLabelIds?: string[] }> = {
   archive: { removeLabelIds: ["INBOX"] },
+  move_to_inbox: { addLabelIds: ["INBOX"] },
   mark_read: { removeLabelIds: ["UNREAD"] },
   mark_unread: { addLabelIds: ["UNREAD"] },
   star: { addLabelIds: ["STARRED"] },

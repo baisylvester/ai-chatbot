@@ -112,6 +112,15 @@ describe("gmail helpers", () => {
     expect(parseBatchResponse("--b\r\n\r\nHTTP/1.1 200 OK\r\n\r\nnot json\r\n--b--", "b").size).toBe(0);
   });
 
+  it("archives by removing the inbox label and brings a message back by adding it", async () => {
+    const bodies: string[] = [];
+    const fetchFn = (async (_url: string, init?: RequestInit) => { bodies.push(String(init?.body)); return Response.json({}); }) as unknown as typeof fetch;
+    const client = new GmailClient("token", fetchFn);
+    await client.organize(["m1"], "archive");
+    await client.organize(["m1"], "move_to_inbox");
+    expect(bodies.map((body) => JSON.parse(body))).toEqual([{ ids: ["m1"], removeLabelIds: ["INBOX"] }, { ids: ["m1"], addLabelIds: ["INBOX"] }]);
+  });
+
   it("stops calling Gmail once a request has used its share, and fails when a whole batch fails", async () => {
     const fetchFn = (async (url: string) => (url.includes("/messages?") ? Response.json({ messages: [{ id: "m1" }] }) : Response.json({ id: "m1", threadId: "t1" }))) as unknown as typeof fetch;
     const client = new GmailClient("token", fetchFn, 3);

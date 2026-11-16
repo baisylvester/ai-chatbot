@@ -62,14 +62,14 @@ export const mailTools: ToolDef[] = [
   }),
   define({
     name: "organize_mail",
-    description: "Sort messages: archive (remove from the inbox), mark_read, mark_unread, star or unstar. Applied immediately; all of these can be undone.",
+    description: "Sort messages: archive (remove from the inbox), move_to_inbox (bring an archived message back), mark_read, mark_unread, star or unstar. Applied immediately; all of these can be undone.",
     schema: z.object({
       ids: z.array(messageId).min(1).max(25),
-      action: z.enum(["archive", "mark_read", "mark_unread", "star", "unstar"]),
+      action: z.enum(["archive", "move_to_inbox", "mark_read", "mark_unread", "star", "unstar"]),
     }),
     async run({ ids, action }, { mail }) {
       await mail.organize(ids, action);
-      return { result: { ok: true }, summary: `${action.replace("_", " ")}: ${ids.length} message${ids.length === 1 ? "" : "s"}` };
+      return { result: { ok: true }, summary: `${action.replaceAll("_", " ")}: ${ids.length} message${ids.length === 1 ? "" : "s"}` };
     },
   }),
   define({
