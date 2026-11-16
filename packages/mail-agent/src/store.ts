@@ -70,6 +70,27 @@ export async function listPendingActions(db: DbClient, userId: string): Promise<
   return rows;
 }
 
+/** The newest send and trash requests of the last day, whatever happened to them. */
+export async function listRecentActions(db: DbClient, userId: string, limit = 8): Promise<MailAction[]> {
+  const { rows } = await db.query<MailAction>(
+    `select ${ACTION} from public.mail_actions
+     where user_id = $1 and created_at > now() - interval '24 hours' order by created_at desc limit $2`, [userId, limit],
+  );
+  return rows;
+}
+
+/** What became of a send or trash request, in words a model can pass on to the user. */
+export function describeActionState(action: Pick<MailAction, "kind" | "status">): string {
+  const send = action.kind === "send";
+  switch (action.status) {
+    case "pending": return "waiting for the user's approval";
+    case "processing": return "approved by the user, in progress";
+    case "done": return send ? "approved by the user: the email was sent" : "approved by the user: moved to Trash";
+    case "rejected": return send ? "declined by the user: not sent, kept as a draft" : "declined by the user: not moved to Trash";
+    default: return send ? "approved by the user, but sending failed: not sent" : "approved by the user, but it failed: not moved to Trash";
+  }
+}
+
 /**
  * Takes a pending action for execution. Only one caller can win, so a double tap on Approve
  * can never send an email twice. Returns null when it was already handled or is not this user's.

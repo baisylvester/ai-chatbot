@@ -5,6 +5,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Chatbot Platform",
   description: "Create, train and embed AI chatbots on any website.",
+  icons: { icon: "/icon.svg", apple: "/icon-192.png" },
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

@@ -3,7 +3,7 @@ import type { BaseChatModel } from "@langchain/core/language_models/chat_models"
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { describe, expect, it, vi } from "vitest";
 import {
-  buildBatchBody, buildDigest, buildMime, CALL_LIMIT_MESSAGE, cleanRecipients, decryptSecret, EMPTY_REPLY, encryptSecret, exchangeCode, fromBase64Url, generateVapidKeys,
+  buildBatchBody, buildDigest, buildMime, CALL_LIMIT_MESSAGE, cleanRecipients, decryptSecret, describeActionState, EMPTY_REPLY, encryptSecret, exchangeCode, fromBase64Url, generateVapidKeys,
   GmailClient, GMAIL_SCOPE, htmlToText, isPushEndpoint, MailAuthError, mailTools, parseBatchResponse, plainDigest, runMailAgent, sendPush, systemPrompt,
   type MailApi, type MailSummary,
 } from "../src/index.ts";
@@ -217,6 +217,17 @@ describe("agent", () => {
     const text = JSON.stringify((bound as unknown as { config: unknown }).config);
     for (const tool of mailTools) expect(text).toContain(tool.name);
     expect(text).toContain("replyToMessageId");
+  });
+});
+
+describe("approval states", () => {
+  it("says what the user did with a send or trash request", () => {
+    expect(describeActionState({ kind: "send", status: "pending" })).toBe("waiting for the user's approval");
+    expect(describeActionState({ kind: "send", status: "done" })).toContain("was sent");
+    expect(describeActionState({ kind: "send", status: "rejected" })).toBe("declined by the user: not sent, kept as a draft");
+    expect(describeActionState({ kind: "trash", status: "done" })).toContain("moved to Trash");
+    expect(describeActionState({ kind: "trash", status: "rejected" })).toBe("declined by the user: not moved to Trash");
+    expect(describeActionState({ kind: "trash", status: "failed" })).toContain("not moved to Trash");
   });
 });
 
