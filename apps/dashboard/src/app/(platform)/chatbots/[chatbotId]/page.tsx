@@ -245,6 +245,7 @@ export default async function ChatbotPage({ params }: { params: Promise<{ chatbo
           </p>
         </div>
         <div className="grid gap-4">
+          {bot.status === "active" && <p className="text-sm"><Link href={`/chat/${bot.public_id}`} className="underline">Open signed-in chat with device sync</Link>. Anonymous website embeds keep separate sessions.</p>}
           <CopyBlock label="JavaScript snippet (any website: HTML, WordPress, Shopify, Webflow, Wix, PHP, Django, ASP.NET…)" code={snippets.script} />
           <CopyBlock label="Web Component" code={snippets.webComponent} />
           <CopyBlock label="iframe" code={snippets.iframe} />

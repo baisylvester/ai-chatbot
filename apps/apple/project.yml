@@ -1,0 +1,56 @@
+name: Chatbot
+options:
+  bundleIdPrefix: com.beyondai
+packages:
+  ChatbotKit:
+    path: ../../packages/apple-sdk
+configs:
+  Debug: debug
+  Release: release
+configFiles:
+  Debug: Configuration.xcconfig
+  Release: Configuration.xcconfig
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    GENERATE_INFOPLIST_FILE: NO
+targets:
+  Chatbot-iOS:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources: [Sources]
+    dependencies:
+      - package: ChatbotKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.beyondai.chatbot.ios
+        TARGETED_DEVICE_FAMILY: "1,2"
+    info:
+      path: Generated/Info-iOS.plist
+      properties:
+        CFBundleDisplayName: Chatbot
+        UILaunchScreen: {}
+        CHATBOT_API_URL: "$(CHATBOT_API_URL)"
+        CHATBOT_PUBLIC_ID: "$(CHATBOT_PUBLIC_ID)"
+        SUPABASE_URL: "$(SUPABASE_URL)"
+        SUPABASE_PUBLISHABLE_KEY: "$(SUPABASE_PUBLISHABLE_KEY)"
+  Chatbot-macOS:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources: [Sources]
+    dependencies:
+      - package: ChatbotKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.beyondai.chatbot.macos
+        CODE_SIGN_ENTITLEMENTS: Chatbot.entitlements
+    info:
+      path: Generated/Info-macOS.plist
+      properties:
+        CFBundleDisplayName: Chatbot
+        CHATBOT_API_URL: "$(CHATBOT_API_URL)"
+        CHATBOT_PUBLIC_ID: "$(CHATBOT_PUBLIC_ID)"
+        SUPABASE_URL: "$(SUPABASE_URL)"
+        SUPABASE_PUBLISHABLE_KEY: "$(SUPABASE_PUBLISHABLE_KEY)"

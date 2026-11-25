@@ -1,5 +1,14 @@
 # Security model and review
 
+## Private client conversations (November 17, 2026)
+
+- `/api/v1/client` accepts a verified Supabase user JWT, including issuer/audience checks, or same-origin first-party session cookies. It never accepts a private organization key as an end-user credential. Invalid bearer credentials do not fall back to a different cookie identity.
+- Active public chatbots may be used by signed-in end users without making them organization members. Every conversation/message read and write is scoped to the verified owner and `source='client'`; UUID knowledge alone grants no access. New RLS policies explicitly exclude client transcripts from organization-member reads, including organization admins.
+- Token expiry is separate from persistent conversation lifetime. Server retention still applies. The existing organization-visible widget/playground transcripts are not retroactively made private; anonymous claiming is not implemented.
+- Request IDs deduplicate model/tool execution. Conversation-row claims and bounded generation leases serialize devices without holding a database connection through generation. Expired turns are interrupted rather than replayed. Terminal completion is sent only after message, usage and turn status commit.
+- Client responses are private/no-store. The first-party UI checks the authenticated account response header and clears rendered history on account change. Native credential storage uses non-migrating Keychain items; Android is managed in its separate project.
+- Foreground polling uses owner-scoped APIs, not direct Supabase table access. The migration keeps the Data API closed and exposes no client-turn grants. This change has local PostgreSQL isolation/concurrency tests; it has not received a new independent security review.
+
 ## Model
 
 - **Tenancy:** organizations → workspaces → websites → chatbots. Every tenant table has `organization_id`.

@@ -8,7 +8,7 @@ import {
   revokeToken, runMailAgent, savePushSubscription, setNotify, type AgentStep, type SendPayload, type TrashPayload,
 } from "@chatbot/mail-agent";
 import { log } from "@/lib/log";
-import { agentModel, mailDb, mailSetup, openMailbox } from "@/lib/mail-agent";
+import { agentModel, attachmentPlainText, mailDb, mailSetup, openMailbox } from "@/lib/mail-agent";
 import { rateLimit } from "@/lib/rate-limit";
 import { requireUser } from "@/lib/session";
 
@@ -39,6 +39,7 @@ export async function chatAction(history: unknown): Promise<ChatResult> {
       model: agentModel(4096),
       mail: gmail,
       userEmail: connection.email,
+      extractText: attachmentPlainText,
       queueAction: (kind, summary, payload) => mailDb((db) => createAction(db, user.id, kind, summary, payload)),
     }, turns.data);
     if (result.queued) revalidatePath("/agent");

@@ -2,7 +2,6 @@
  * Text extraction for supported knowledge formats. Input is untrusted: sizes are capped and
  * formats are detected from content type and file extension, not trusted blindly.
  */
-import { convert } from "html-to-text";
 import mammoth from "mammoth";
 import { extractText as extractPdfText, getDocumentProxy } from "unpdf";
 import { extractLegacyDoc } from "./legacy-doc.ts";
@@ -12,20 +11,8 @@ export { MAX_UPLOAD_BYTES, detectFormat, type SupportedFormat } from "./formats.
 import { assertSafeZip, ExtractionError, MAX_EXTRACTED_CHARS, MAX_PDF_PAGES, normalizeText } from "./extract-shared.ts";
 export { assertSafeZip, ExtractionError, MAX_EXTRACTED_CHARS, MAX_PDF_PAGES, MAX_ZIP_UNCOMPRESSED_BYTES, normalizeText } from "./extract-shared.ts";
 
-export function htmlToText(html: string): string {
-  return convert(html, {
-    wordwrap: false,
-    selectors: [
-      { selector: "a", options: { ignoreHref: true } },
-      { selector: "img", format: "skip" },
-      { selector: "script", format: "skip" },
-      { selector: "style", format: "skip" },
-      { selector: "nav", format: "skip" },
-      { selector: "footer", format: "skip" },
-      { selector: "noscript", format: "skip" },
-    ],
-  });
-}
+import { htmlToText } from "./html.ts";
+export { htmlToText };
 
 function looksBinary(bytes: Uint8Array): boolean {
   const sample = bytes.subarray(0, 4096);

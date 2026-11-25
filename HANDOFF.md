@@ -1,6 +1,22 @@
 # Handoff: Embeddable Chatbot Platform
 
-State as of 2026-11-11. Read this first, then `README.md`, `DEPLOYMENT.md` and `SECURITY.md`.
+Read the newest update first, then `README.md`, `DEPLOYMENT.md` and `SECURITY.md`.
+
+## Update (2026-11-17): signed-in clients and sync
+
+This update supersedes older statements where they differ. Changes are in the working tree; no commit, push, production migration or deployment was performed.
+
+- Added private `/api/v1/client` conversations using verified Supabase user tokens, independent of short-lived widget sessions. All conversation/message reads and writes enforce the owner; new RLS policies exclude these transcripts from other organization members' reads. Active public chatbot IDs allow signed-in users to start their own conversations, without becoming tenant admins.
+- Added ordered, cursor-based message recovery, stable conversation/request UUIDs, deduplication, per-conversation generation leases, stale-writer fencing, deletion and commit-before-completion behavior. The generation flow uses short transactions, not an open DB connection during model execution. A lost stream is not reported as successful completion. Polling sync covers committed data; no offline outbox or durable background-generation worker is implemented.
+- Web `/chat/<public-chatbot-id>` and Assistant use `SyncedChat`, with account-scoped selection, account-change detection and five-second visible/foreground refresh. New private chat is separate from existing organization-visible playground/widget history. The tab-only mail fallback is unchanged. Existing exact Supabase callback URLs remain valid; same-browser chat continuation uses a short-lived safe destination cookie.
+- Added `packages/client-sdk`, `packages/apple-sdk` (Swift/Keychain/auth/client/tests), and `apps/apple` (shared SwiftUI sources and iOS/macOS XcodeGen targets). Apple compilation, signing and device validation require a Mac. These are source implementations, not validated native binaries.
+- Quen is developing Android separately at `C:\Users\PC2\AndroidStudioProjects\PROJECTS\android_native\embeddable_chatbot_android`. That folder was inspected but not modified. The integration handoff is `docs/CLIENT_API.md`; Android must switch from anonymous widget endpoints to user-authenticated client endpoints.
+- Pinned Next.js 16.4.5 and updated the lockfile to fix GHSA-mfr8-8qww-v76h, which stopped the old build. This security patch is an intentional exception to the older dependency-age preference. The production dependency audit now reports zero advisories. No other feature upgrade was introduced.
+- Validation: all TypeScript packages pass; 126 existing/new unit/service tests passed together, plus three targeted sign-up/callback tests (129 total). Ten additional real PostgreSQL client-sync integration tests pass on a fresh disposable database. The broad suite still skips 52 database/fixture-dependent tests when their optional configuration is absent; the ten client-sync tests were run separately with their own empty database. The production Next.js build passes with `--webpack`; its existing unpdf import.meta warning remains. The top-level Turbo/embedded-script build was not certified in the sandbox because esbuild could not traverse a protected ancestor directory.
+- Running-app checks used an isolated local JWT issuer, mock OpenAI-compatible provider and disposable PostgreSQL schema (no production credentials). Desktop/mobile sessions recovered the same native-created transcript, web replies synchronized, duplicate requests did not duplicate messages, cross-account reads failed, deletion propagated, account switching/sign-out cleared state, and the 390px layout had no horizontal overflow or browser JavaScript errors. Knowledge/RAG integration and real Supabase email/provider behavior were not exercised by this local sync check.
+- CI now includes the PostgreSQL sync suite and Mac Swift SDK tests/macOS interface type-check. These new CI jobs have not been run remotely because nothing was pushed.
+
+Before release: apply `packages/database/migrations/20261117090000_client_conversations.sql` through the normal migration runner, install the new locked dependencies, build/deploy, validate with real Supabase accounts, and integrate/test Quen's Android app plus signed Apple builds. Keep every client on the same backend, public chatbot and Supabase project. No production data was changed by development verification.
 
 ## Update (2026-11-11, after deployment)
 

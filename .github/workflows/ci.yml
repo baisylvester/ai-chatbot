@@ -9,6 +9,41 @@ permissions:
   contents: read
 
 jobs:
+  client-sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: codex_client_sync_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d codex_client_sync_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @chatbot/core exec vitest run test/client-conversations.test.ts
+        env:
+          CLIENT_SYNC_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/codex_client_sync_test
+
+  apple-sdk:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift test --package-path packages/apple-sdk
+      - name: Type-check the shared macOS interface
+        run: swiftc -typecheck -parse-as-library -target "$(uname -m)-apple-macosx14.0" -I "$(swift build --package-path packages/apple-sdk --show-bin-path)/Modules" apps/apple/Sources/*.swift
+
   checks:
     runs-on: ubuntu-latest
     timeout-minutes: 30

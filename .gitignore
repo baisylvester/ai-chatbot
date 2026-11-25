@@ -26,3 +26,8 @@ tests/e2e/playwright-report/
 apps/dashboard/cloudflare-pages/
 .dev.vars*
 apps/dashboard/public/knowledge-parser.js
+.build/
+.swiftpm/
+apps/apple/Configuration.xcconfig
+apps/apple/Chatbot.xcodeproj/
+apps/apple/Generated/

@@ -1,5 +1,33 @@
 # Deploying the Chatbot Platform
 
+## Unified assistant follow-up (November 20, 2026)
+
+**25 November 2026:** migration `20261125090000_mail_scheduled_send.sql` was applied to the shared database, then Pages deployment 882bc098 went live with mail labels, attachment download/reading, formatted and attachment drafts, and scheduled send (sent by the maintenance cron). The Worker bundle is 25.1 MB of Cloudflare's 25 MiB (26.2 MB) limit: server code must import `@chatbot/rag-engine/runtime`, not the package index, unless it parses files, or the PDF/Word parsers are copied into many route chunks. Mail attachments are read without those parsers (text/HTML directly, DOCX by unzipping, PDF and images through Gemini with `GOOGLE_GENERATIVE_AI_API_KEY`).
+
+Pages deployment 3fd418c5-e256-42a5-b93a-85ceb72d9cae and Worker version 1dfec09c-46eb-410c-a973-6176ddb786d4 are live. The private personal-assistant route now uses the deployed assistant provider for general chat without granting Gmail tools. Public chatbot model selection, ownership checks, secrets, bindings and maintenance cron are preserved. Preview and final live physical-device checks passed, including general chat without mailbox capability and a same-conversation Gmail search/context follow-up. This update supersedes the deployment IDs in the earlier onboarding rollout below; no additional database migration was needed.
+
+## Native onboarding rollout (November 19–20, 2026)
+
+The Android app registers users through Supabase Auth, provisions a private assistant through POST /api/v1/client/onboarding, and offers Gmail connection or an initial skip. The updated /api/v1/client/* handlers and /auth/email-confirmed are live at https://ai-chatbot-9wg.pages.dev as of November 20. See docs/CLIENT_API.md and the Android project's docs/NEW_USER_ONBOARDING.md for the contract and test limits.
+
+The four client migrations (20261117090000_client_conversations.sql, 20261118090000_native_mail.sql, 20261119075549_native_onboarding.sql, 20261119090000_mail_client_drafts.sql) were applied to this project's shared database on November 19. Other environments require their own migrations.
+
+After preview checks passed, Pages deployment 016aa41f-e4a0-41e2-83de-3ec1228096dc was promoted live, and maintenance Worker version 0e5d920d-5fb2-4731-8aff-24a5cfbd7d83 received 100% traffic. Existing Worker bindings, secrets and the */10 * * * * schedule were preserved. Temporary Worker preview settings were restored. Rollback references: Pages 55204d58-8162-4918-86ad-f0a1c2d5ef9d and Worker be8b44b7-8a09-4944-945d-54a50bc073a1.
+
+Validation on November 20: production webpack build, TypeScript check, OpenNext packaging, Wrangler dry run, five local runtime checks, and six route checks each against Worker preview, live Pages and live Worker. The local runtime checks used placeholder secrets. Authenticated physical-device tests additionally verified private-assistant setup, active Gmail, real Inbox reading and synthetic AI writing. The final APK passed against direct live HTTPS with no ADB reverse or PC proxy. No email was sent or modified by these checks.
+
+Before opening registration publicly, verify Supabase's exact confirmation redirect allowlist includes https://ai-chatbot-9wg.pages.dev/auth/email-confirmed, retain existing /auth/callback entries, and test confirmation-email delivery using an unused address. Keep email confirmation enabled. Exact allowlist and SMTP settings were not accessible through the available management tools/credentials. The supplied test email already had an account, so fresh-account email delivery/verification remains untested. Google consent tester restrictions/verification and Android release signing also remain release checks.
+
+The Windows symlink fallback rebases direct pnpm store junctions into standalone/OpenNext output trees so packaging uses copied and patched dependencies. The delivered Android APK is debug signed; it preserves the existing account while upgrading known PC loopback configuration to the live origin for the same Supabase project/public key.
+
+## November 17 client-sync release prerequisite
+
+Install the updated lockfile and apply `20261117090000_client_conversations.sql` with the existing migration runner **before** deploying the new server. This development change does not apply a production migration or deploy automatically. New private conversations are account-owned; existing anonymous widget and organization playground transcripts retain their previous access model.
+
+The signed-in web route is `/chat/<active-public-chatbot-id>`. Android and Apple clients must use the same platform URL, active public chatbot ID and Supabase Auth project. Keep the existing exact `/auth/callback` allowlist entry: same-browser chat sign-up continuation uses a short-lived first-party cookie, so an additional redirect wildcard is not required. Confirmation on a different browser/device falls back to the dashboard; open the chat link again there.
+
+See `docs/CLIENT_API.md` for Quen's Android integration contract and `apps/apple/README.md` for native Apple setup. The Swift sources and XcodeGen targets require compilation/signing and real-device validation on a Mac. Native voice and an offline send queue are not part of this first text-chat milestone.
+
 The platform is one Next.js app (`apps/dashboard`) and a Supabase project (Postgres + Auth). It serves the dashboard, the public widget API, the REST API and `embed.js`. These steps use **Vercel + Supabase**. Any Node 20.9+ host works the same way: run `next build` and `next start`, and call the maintenance URL from a cron.
 
 ## 1. Database and Auth (Supabase)

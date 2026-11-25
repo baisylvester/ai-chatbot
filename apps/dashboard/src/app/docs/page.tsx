@@ -32,6 +32,11 @@ export default async function DocsPage() {
         </Link>
       </p>
       <h1 className="mt-2 text-2xl font-semibold">API & integration docs</h1>
+      <section className="mt-6 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
+        <h2 className="font-semibold">Signed-in web and native clients</h2>
+        <p className="mt-2 text-sm">Use /api/v1/client with a Supabase user access token for persistent, private conversations shared across Android, iOS, macOS and the web. Native requests do not need an Origin header. Organization API keys belong only on trusted servers.</p>
+        <p className="mt-2 text-sm">The signed-in web interface is /chat/&lt;public-chatbot-id&gt;. Create a conversation with a stable UUID, retain each message requestId on uncertain retries, and recover messages with after=0 followed by nextCursor. Model failures are terminal failed turns. The Client section of the OpenAPI specification defines every request and response.</p>
+      </section>
       <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
         Every chatbot runs on this platform. Websites add it with a snippet, a Web Component or an iframe, and servers call the REST API. You never
         need to host an AI model, a database or a knowledge base yourself. Machine-readable spec:{" "}

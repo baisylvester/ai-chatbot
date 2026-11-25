@@ -15,7 +15,7 @@ import {
   reciprocalRankFusion,
   type Embedder,
   type FetchedPage,
-} from "@chatbot/rag-engine";
+} from "@chatbot/rag-engine/runtime";
 import { z } from "zod";
 import { DomainError, mapDbError, notFound } from "./errors.ts";
 import type { TrustedRunner } from "./conversation.ts";
@@ -448,6 +448,21 @@ async function allowedSourceIds(db: DbClient, chatbotId: string, orgId: string):
       [chatbotId, orgId],
     )
   ).rows.map((r) => r.id);
+}
+
+/** Uses exactly the same assigned-source boundary as retrieval; no organization-wide knowledge scan. */
+export async function knowledgeStateForChatbot(db: DbClient, chatbot: { id: string; organization_id: string }) {
+  const sources = await allowedSourceIds(db, chatbot.id, chatbot.organization_id);
+  const row = (await db.query<{ ready: number; processing: number; failed: number; chunks: number; updated: Date | null }>(`
+    select count(*) filter (where d.status='ready')::int as ready,
+      count(*) filter (where d.status in ('pending','processing'))::int as processing,
+      count(*) filter (where d.status='failed')::int as failed,
+      coalesce(sum((select count(*) from document_chunks c where c.document_id=d.id
+        and c.organization_id=$1 and c.knowledge_source_id=d.knowledge_source_id)) filter (where d.status='ready'),0)::int as chunks,
+      max(d.updated_at) as updated
+    from knowledge_documents d where d.organization_id=$1 and d.knowledge_source_id=any($2::uuid[])`, [chatbot.organization_id, sources])).rows[0]!;
+  return { sourceCount: sources.length, readyDocuments: row.ready, processingDocuments: row.processing, failedDocuments: row.failed,
+    chunks: row.chunks, updatedAt: row.updated?.toISOString() ?? null };
 }
 
 /**

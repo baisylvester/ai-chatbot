@@ -4,6 +4,14 @@ A multi-tenant AI chatbot platform. You build the chatbot engine once, then any 
 
 ## Status
 
+### November 17: signed-in clients and cross-device conversations
+
+The new `/api/v1/client` API supports private, persistent conversations using verified Supabase user tokens. Web `/chat/<public-chatbot-id>` and the Assistant page use ordered message recovery and foreground polling. Stable request IDs prevent duplicate model/tool execution, concurrent devices serialize turns, and completion is acknowledged only after persistence. New private client transcripts are not readable by other organization members. Existing widget/playground history keeps its previous access model.
+
+`packages/client-sdk` is the headless TypeScript client. `packages/apple-sdk` and `apps/apple` contain the Swift SDK and iOS/macOS targets; Apple builds still require a Mac. Android development remains in its separate project under Quen's ownership; that folder has not been changed. See [docs/CLIENT_API.md](docs/CLIENT_API.md) for the exact integration contract and [apps/apple/README.md](apps/apple/README.md) for Apple setup.
+
+Apply migration `20261117090000_client_conversations.sql` before deploying this change. No production migration or deployment is performed automatically. Anonymous widget history does not become cross-device history without signing in and using the client API.
+
 **All 8 phases are built.** See [DEPLOYMENT.md](DEPLOYMENT.md) to go live and [SECURITY.md](SECURITY.md) for the security model and review. Still to do before launch: run it against real AI provider keys, and deploy. Nothing on this page should be read as working beyond what this table lists.
 
 | Area | State |

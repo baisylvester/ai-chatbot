@@ -343,7 +343,7 @@ export async function setChatbotStatus(db: DbClient, chatbotId: string, status: 
   await audit(db, bot.organization_id, `chatbot.status.${s}`, "chatbot", bot.id);
 }
 
-export interface ManagedChatbot { id: string; name: string; organization: string }
+export interface ManagedChatbot { id: string; publicId: string; name: string; organization: string }
 
 /**
  * Chatbots the user may chat with from the dashboard: those in organizations where they are an
@@ -352,7 +352,7 @@ export interface ManagedChatbot { id: string; name: string; organization: string
 export async function listManagedChatbots(db: DbClient, userId: string): Promise<ManagedChatbot[]> {
   return (
     await db.query<ManagedChatbot>(
-      `select c.id, coalesce(nullif(s.settings->>'name', ''), 'Chatbot') as name, o.name as organization
+      `select c.id, c.public_id as "publicId", coalesce(nullif(s.settings->>'name', ''), 'Chatbot') as name, o.name as organization
        from chatbots c
        join chatbot_settings s on s.chatbot_id = c.id
        join organizations o on o.id = c.organization_id

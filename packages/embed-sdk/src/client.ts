@@ -287,7 +287,7 @@ export class ChatClient {
           else if (event === "done") return handlers.onDone();
           else if (event === "error") return handlers.onError(String(data.message ?? "Something went wrong."));
         }
-        handlers.onDone();
+        handlers.onError("The connection ended before the reply was saved. Please reload the chat.");
       } catch (err) {
         handlers.onError((err as Error).name === "AbortError" ? "Stopped." : "The connection was interrupted.");
       }

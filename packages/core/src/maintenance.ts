@@ -7,11 +7,12 @@
  *  - prune expired rate-limit counters
  */
 import type { DbClient } from "@chatbot/database";
-import type { Embedder } from "@chatbot/rag-engine";
+import type { Embedder } from "@chatbot/rag-engine/runtime";
 import { purgeExpiredData } from "./analytics.ts";
 import type { TrustedRunner } from "./conversation.ts";
 import { processIngestionJob } from "./knowledge.ts";
 import { closeAbandonedVoiceSessions } from "./voice.ts";
+import { recoverClientTurns } from "./client-conversations.ts";
 
 export interface MaintenanceResult {
   requeuedJobs: number;
@@ -49,6 +50,7 @@ export async function runMaintenance(
   deps: { embedder: Embedder | null; maxJobs?: number; queuedOlderThanSeconds?: number },
 ): Promise<MaintenanceResult> {
   const stuck = await trusted((db) => recoverStuckJobs(db));
+  await trusted((db) => recoverClientTurns(db));
 
   // Jobs normally run right after upload; only pick up ones that have waited a while.
   const queued = await trusted(async (db) =>
