@@ -84,9 +84,13 @@ export function describeActionState(action: Pick<MailAction, "kind" | "status">)
   const send = action.kind === "send";
   switch (action.status) {
     case "pending": return "waiting for the user's approval";
+    case "scheduled": return "approved by the user to be sent later at a scheduled time: not sent yet";
     case "processing": return "approved by the user, in progress";
     case "done": return send ? "approved by the user: the email was sent" : "approved by the user: moved to Trash";
     case "rejected": return send ? "declined by the user: not sent, kept as a draft" : "declined by the user: not moved to Trash";
+    case "uncertain": return send
+      ? "approved by the user, but Gmail did not confirm it: the email may or may not have been sent (check the Sent folder)"
+      : "approved by the user, but Gmail did not confirm it: the messages may or may not be in Trash";
     default: return send ? "approved by the user, but sending failed: not sent" : "approved by the user, but it failed: not moved to Trash";
   }
 }

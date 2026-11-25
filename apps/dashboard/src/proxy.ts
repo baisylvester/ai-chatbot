@@ -29,6 +29,7 @@ export default async function proxy(request: NextRequest) {
     const url = request.nextUrl.clone();
     url.pathname = "/auth/sign-in";
     url.search = "";
+    if (/^\/chat\/cb_[A-Za-z0-9]{16,64}$/.test(request.nextUrl.pathname)) url.searchParams.set("next", request.nextUrl.pathname);
     const redirect = NextResponse.redirect(url);
     redirect.headers.set("Cache-Control", "private, no-store");
     for (const [name, value] of Object.entries(authCacheHeaders)) redirect.headers.set(name, value);
@@ -39,5 +40,5 @@ export default async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/orgs/:path*", "/workspaces/:path*", "/websites/:path*", "/chatbots/:path*", "/knowledge/:path*", "/conversations/:path*", "/agent/:path*"],
+  matcher: ["/orgs/:path*", "/workspaces/:path*", "/websites/:path*", "/chatbots/:path*", "/knowledge/:path*", "/conversations/:path*", "/agent/:path*", "/chat/:path*"],
 };

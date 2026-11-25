@@ -10,7 +10,9 @@
  */
 import { lookup } from "node:dns/promises";
 import ipaddr from "ipaddr.js";
-import { ExtractionError, htmlToText, MAX_UPLOAD_BYTES, normalizeText } from "./extract.ts";
+import { ExtractionError, normalizeText } from "./extract-shared.ts";
+import { MAX_UPLOAD_BYTES } from "./formats.ts";
+import { htmlToText } from "./html.ts";
 
 const MAX_REDIRECTS = 5;
 const TIMEOUT_MS = 15_000;

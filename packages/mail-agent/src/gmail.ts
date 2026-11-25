@@ -19,7 +19,18 @@ export class MailAuthError extends Error {
   }
 }
 
-export function googleAuthUrl(config: GoogleOAuthConfig, state: string): string {
+/** A Gmail API answer that was not 2xx. `status` tells a definite refusal (4xx) from an unknown outcome (5xx). */
+export class GmailHttpError extends Error {
+  readonly status: number;
+  constructor(status: number) {
+    super(`Gmail request failed (${status})`);
+    this.name = "GmailHttpError";
+    this.status = status;
+  }
+}
+
+/** `codeChallenge` (S256) adds PKCE for the native flow; the web flow omits it and is unchanged. */
+export function googleAuthUrl(config: GoogleOAuthConfig, state: string, codeChallenge?: string): string {
   const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
   url.search = new URLSearchParams({
     client_id: config.clientId,
@@ -30,6 +41,7 @@ export function googleAuthUrl(config: GoogleOAuthConfig, state: string): string 
     access_type: "offline",
     prompt: "consent",
     state,
+    ...(codeChallenge ? { code_challenge: codeChallenge, code_challenge_method: "S256" } : {}),
   }).toString();
   return url.toString();
 }
@@ -48,10 +60,11 @@ async function tokenRequest(params: Record<string, string>, fetchFn: FetchFn) {
   return data;
 }
 
-export async function exchangeCode(config: GoogleOAuthConfig, code: string, fetchFn: FetchFn = fetch) {
+export async function exchangeCode(config: GoogleOAuthConfig, code: string, fetchFn: FetchFn = fetch, codeVerifier?: string) {
   const data = await tokenRequest({
     code, client_id: config.clientId, client_secret: config.clientSecret,
     redirect_uri: config.redirectUri, grant_type: "authorization_code",
+    ...(codeVerifier ? { code_verifier: codeVerifier } : {}),
   }, fetchFn);
   const scope = String(data.scope ?? "");
   if (!scope.split(" ").includes(GMAIL_SCOPE)) throw new MailAuthError("Gmail permission was not granted. Tick the Gmail box on Google's consent screen.");
@@ -76,11 +89,22 @@ export async function revokeToken(token: string, fetchFn: FetchFn = fetch): Prom
   }).catch(() => undefined);
 }
 
-export interface MailSummary { id: string; threadId: string; from: string; subject: string; date: string; snippet: string; unread: boolean; starred: boolean }
-export interface MailMessage extends MailSummary { to: string; body: string; truncated: boolean }
-export interface DraftInput { to: string; subject: string; body: string; replyToMessageId?: string }
+/** `labelIds` lists only the user's own labels (Gmail ids `Label_…`), never system labels. */
+export interface MailSummary { id: string; threadId: string; from: string; subject: string; date: string; snippet: string; unread: boolean; starred: boolean; labelIds?: string[] }
+/** A file attached to a received message. `partId` addresses it inside that message. */
+export interface MessageAttachment { partId: string; filename: string; mimeType: string; size: number }
+export interface MailMessage extends MailSummary { to: string; body: string; truncated: boolean; attachments?: MessageAttachment[] }
+export interface MailLabel { id: string; name: string; color: string | null }
+export interface AttachmentFile { filename: string; mimeType: string; bytes: Uint8Array }
+/** A file to attach to a new draft. `data` is standard or url-safe base64. */
+export interface OutgoingAttachment { filename: string; mimeType: string; data: string }
+/** `format: "markdown"` renders a limited, escaped Markdown subset as the HTML part; the plain part stays readable. */
+export interface DraftInput { to: string; subject: string; body: string; replyToMessageId?: string; format?: "plain" | "markdown"; attachments?: OutgoingAttachment[] }
 export interface DraftResult { draftId: string; to: string; subject: string }
-export type OrganizeAction = "archive" | "move_to_inbox" | "mark_read" | "mark_unread" | "star" | "unstar";
+export interface DraftAttachment { filename: string; mimeType: string; size: number }
+/** A Gmail draft as it is now, for review before sending. `messageId` changes whenever the draft is edited. */
+export interface DraftDetail { draftId: string; messageId: string; to: string[]; cc: string[]; bcc: string[]; subject: string; body: string; attachments: DraftAttachment[] }
+export type OrganizeAction = "archive" | "move_to_inbox" | "mark_read" | "mark_unread" | "star" | "unstar" | "mark_spam";
 
 /** What the agent needs from a mailbox. GmailClient implements it; tests use a fake. */
 export interface MailApi {
@@ -88,9 +112,15 @@ export interface MailApi {
   read(id: string): Promise<MailMessage>;
   createDraft(input: DraftInput): Promise<DraftResult>;
   organize(ids: string[], action: OrganizeAction): Promise<void>;
+  /** The user's own labels. */
+  labels(): Promise<MailLabel[]>;
+  /** Adds and removes user labels only; system labels (INBOX, TRASH, SPAM…) are refused. */
+  relabel(ids: string[], add: string[], remove: string[]): Promise<void>;
+  createLabel(name: string): Promise<MailLabel>;
+  attachment(messageId: string, partId: string): Promise<AttachmentFile>;
 }
 
-interface Part { mimeType?: string; body?: { data?: string }; parts?: Part[]; headers?: { name: string; value: string }[] }
+interface Part { partId?: string; mimeType?: string; filename?: string; body?: { data?: string; size?: number; attachmentId?: string }; parts?: Part[]; headers?: { name: string; value: string }[] }
 interface RawMessage { id: string; threadId: string; snippet?: string; labelIds?: string[]; payload?: Part }
 
 const MAX_BODY_CHARS = 6000;
@@ -127,13 +157,63 @@ export function messageText(message: RawMessage): string {
   return html ? htmlToText(html) : message.snippet ?? "";
 }
 
+/** Draft bodies shown for approval are complete; this only guards against absurd payloads. */
+const MAX_DRAFT_BODY_CHARS = 100_000;
+
+function attachmentsOf(part: Part | undefined, out: DraftAttachment[] = []): DraftAttachment[] {
+  if (!part) return out;
+  if (part.filename) out.push({ filename: part.filename, mimeType: part.mimeType ?? "application/octet-stream", size: part.body?.size ?? 0 });
+  for (const child of part.parts ?? []) attachmentsOf(child, out);
+  return out;
+}
+
+const addressList = (value: string) => value.split(",").map((item) => item.trim()).filter(Boolean);
+
+/** Gmail's ids for labels the user created. System labels never match. */
+export const USER_LABEL_ID = /^Label_[0-9A-Za-z_-]{1,60}$/;
+/** Part ids are dotted numbers ("1", "0.2"). */
+export const PART_ID = /^[0-9]{1,3}(\.[0-9]{1,3}){0,6}$/;
+/** Attachments the server will download in one request (Gmail allows 25 MB per message). */
+export const MAX_ATTACHMENT_BYTES = 15 * 1024 * 1024;
+/** Total size of files attached to one new draft. */
+export const MAX_OUTGOING_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+export const MAX_OUTGOING_ATTACHMENTS = 10;
+
+function messageAttachments(part: Part | undefined, out: MessageAttachment[] = []): MessageAttachment[] {
+  if (!part) return out;
+  if (part.filename && part.partId && PART_ID.test(part.partId)) {
+    out.push({ partId: part.partId, filename: part.filename, mimeType: part.mimeType ?? "application/octet-stream", size: part.body?.size ?? 0 });
+  }
+  for (const child of part.parts ?? []) messageAttachments(child, out);
+  return out;
+}
+
+function findPartById(part: Part | undefined, partId: string): Part | null {
+  if (!part) return null;
+  if (part.partId === partId) return part;
+  for (const child of part.parts ?? []) {
+    const found = findPartById(child, partId);
+    if (found) return found;
+  }
+  return null;
+}
+
 function summarize(message: RawMessage): MailSummary {
   return {
     id: message.id, threadId: message.threadId,
     from: header(message, "From"), subject: header(message, "Subject") || "(no subject)", date: header(message, "Date"),
     snippet: message.snippet ?? "", unread: message.labelIds?.includes("UNREAD") ?? false,
     starred: message.labelIds?.includes("STARRED") ?? false,
+    labelIds: (message.labelIds ?? []).filter((id) => USER_LABEL_ID.test(id)),
   };
+}
+
+/** A label name Gmail will accept and that cannot smuggle control characters. */
+export function cleanLabelName(name: string): string {
+  const value = name.replace(/[\u0000-\u001f\u007f]/g, "").trim();
+  if (!value || value.length > 100) throw new Error("A label name needs 1 to 100 characters");
+  if (/^(inbox|sent|drafts?|spam|trash|starred|important|unread|chat|category_.*)$/i.test(value)) throw new Error("That name is reserved by Gmail");
+  return value;
 }
 
 /** Thrown when one request has used its share of Gmail calls. The agent passes the text on to the model. */
@@ -184,24 +264,136 @@ const oneLine = (value: string) => value.replace(/[\r\n]+/g, " ").trim();
 const encodeHeader = (value: string) =>
   /^[\x20-\x7e]*$/.test(value) ? value : `=?UTF-8?B?${Buffer.from(value, "utf8").toString("base64")}?=`;
 
-/** An RFC 5322 plain-text message. Header values are single lines, so input cannot add headers. */
-export function buildMime(input: { to: string; subject: string; body: string; inReplyTo?: string; references?: string }): string {
-  const lines = [
+const wrap76 = (base64: string) => base64.replace(/.{76}/g, "$&\r\n");
+const base64Utf8 = (text: string) => wrap76(Buffer.from(text, "utf8").toString("base64"));
+
+const escapeHtml = (value: string) =>
+  value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+
+/** Inline Markdown on already-escaped text: links (http, https, mailto only), bold, italic, code. */
+function inlineMarkdown(escaped: string): string {
+  return escaped
+    .replace(/\[([^\]\n]{1,300})\]\(((?:https?:\/\/|mailto:)[^\s)"<>]{1,2000})\)/g, (_m, text: string, href: string) => `<a href="${href}">${text}</a>`)
+    .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[^\w*])\*([^*\n]+)\*(?=$|[^\w*])/g, "$1<em>$2</em>")
+    .replace(/(^|[^\w])_([^_\n]+)_(?=$|[^\w])/g, "$1<em>$2</em>")
+    .replace(/`([^`\n]+)`/g, "<code>$1</code>");
+}
+
+/**
+ * A small, safe Markdown subset as email HTML: paragraphs, line breaks, headings (#, ##, ###), bullet
+ * and numbered lists, bold, italic, inline code and links. Everything is escaped first, so the input
+ * can never add tags, attributes or scripts of its own.
+ */
+export function markdownToHtml(markdown: string): string {
+  const blocks: string[] = [];
+  let list: { tag: "ul" | "ol"; items: string[] } | null = null;
+  let paragraph: string[] = [];
+  const flushParagraph = () => { if (paragraph.length) blocks.push(`<p>${paragraph.join("<br>")}</p>`); paragraph = []; };
+  const flushList = () => { if (list) blocks.push(`<${list.tag}>${list.items.map((item) => `<li>${item}</li>`).join("")}</${list.tag}>`); list = null; };
+  for (const raw of markdown.replace(/\r\n?/g, "\n").split("\n")) {
+    const line = raw.trimEnd();
+    const bullet = line.match(/^\s*[-*•]\s+(.*)$/);
+    const numbered = line.match(/^\s*\d{1,3}[.)]\s+(.*)$/);
+    const heading = line.match(/^(#{1,3})\s+(.*)$/);
+    if (!line.trim()) { flushParagraph(); flushList(); continue; }
+    if (bullet || numbered) {
+      flushParagraph();
+      const tag = bullet ? "ul" : "ol";
+      if (list && list.tag !== tag) flushList();
+      list ??= { tag, items: [] };
+      list.items.push(inlineMarkdown(escapeHtml((bullet ?? numbered)![1]!)));
+      continue;
+    }
+    flushList();
+    if (heading) {
+      flushParagraph();
+      const level = heading[1]!.length + 1;
+      blocks.push(`<h${level}>${inlineMarkdown(escapeHtml(heading[2]!))}</h${level}>`);
+      continue;
+    }
+    paragraph.push(inlineMarkdown(escapeHtml(line)));
+  }
+  flushParagraph(); flushList();
+  return `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5">${blocks.join("\n")}</div>`;
+}
+
+/** The plain-text alternative of a Markdown body: markers removed, link targets kept in brackets. */
+export function markdownToPlain(markdown: string): string {
+  return markdown.replace(/\r\n?/g, "\n")
+    .replace(/\[([^\]\n]{1,300})\]\(((?:https?:\/\/|mailto:)[^\s)]+)\)/g, "$1 ($2)")
+    .replace(/\*\*([^*\n]+)\*\*/g, "$1")
+    .replace(/(^|[^\w*])\*([^*\n]+)\*(?=$|[^\w*])/g, "$1$2")
+    .replace(/(^|[^\w])_([^_\n]+)_(?=$|[^\w])/g, "$1$2")
+    .replace(/`([^`\n]+)`/g, "$1")
+    .replace(/^#{1,3}\s+/gm, "")
+    .replace(/^\s*[*•]\s+/gm, "- ");
+}
+
+const MIME_TYPE = /^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$/i;
+
+/** A filename safe for a MIME header and for the recipient's disk: no paths, quotes or control characters. */
+export function cleanFilename(name: string): string {
+  const base = name.replace(/[\u0000-\u001f\u007f"\\/:*?<>|]/g, "_").replace(/^\.+/, "").trim().slice(0, 200);
+  return base || "attachment";
+}
+
+/** Decodes and checks the files for a new draft. Throws a user-facing error on anything unacceptable. */
+export function decodeAttachments(files: OutgoingAttachment[] = []): { filename: string; mimeType: string; bytes: Buffer }[] {
+  if (files.length > MAX_OUTGOING_ATTACHMENTS) throw new Error(`Attach at most ${MAX_OUTGOING_ATTACHMENTS} files`);
+  let total = 0;
+  return files.map((file) => {
+    if (!/^[A-Za-z0-9+/_-]*={0,2}$/.test(file.data)) throw new Error("An attachment could not be read");
+    const bytes = Buffer.from(file.data.replace(/-/g, "+").replace(/_/g, "/"), "base64");
+    if (!bytes.length) throw new Error("An attachment is empty");
+    total += bytes.length;
+    if (total > MAX_OUTGOING_ATTACHMENT_BYTES) throw new Error("Attachments can total at most 10 MB");
+    return { filename: cleanFilename(file.filename), mimeType: MIME_TYPE.test(file.mimeType) ? file.mimeType.toLowerCase() : "application/octet-stream", bytes };
+  });
+}
+
+/** RFC 2231 filename parameter, readable by every mail client for any characters. */
+const filenameParam = (name: string) =>
+  /^[\x20-\x7e]*$/.test(name) ? `filename="${name}"` : `filename*=UTF-8''${encodeURIComponent(name)}`;
+
+/**
+ * An RFC 5322 message. Header values are single lines, so input cannot add headers. Plain text by
+ * default; `html` adds a multipart/alternative HTML part and `attachments` a multipart/mixed wrapper.
+ */
+export function buildMime(input: {
+  to: string; subject: string; body: string; inReplyTo?: string; references?: string;
+  html?: string; attachments?: { filename: string; mimeType: string; bytes: Buffer }[];
+}): string {
+  const headers = [
     `To: ${cleanRecipients(input.to)}`,
     `Subject: ${encodeHeader(oneLine(input.subject).slice(0, 300))}`,
     ...(input.inReplyTo ? [`In-Reply-To: ${oneLine(input.inReplyTo)}`, `References: ${oneLine(input.references || input.inReplyTo)}`] : []),
     "MIME-Version: 1.0",
-    'Content-Type: text/plain; charset="UTF-8"',
-    "Content-Transfer-Encoding: base64",
-    "",
-    Buffer.from(input.body, "utf8").toString("base64").replace(/.{76}/g, "$&\r\n"),
   ];
-  return lines.join("\r\n");
+  const textPart = ['Content-Type: text/plain; charset="UTF-8"', "Content-Transfer-Encoding: base64", "", base64Utf8(input.body)].join("\r\n");
+  let bodyPart = textPart;
+  if (input.html) {
+    const boundary = `alt_${crypto.randomUUID()}`;
+    const htmlPart = ['Content-Type: text/html; charset="UTF-8"', "Content-Transfer-Encoding: base64", "", base64Utf8(input.html)].join("\r\n");
+    bodyPart = [`Content-Type: multipart/alternative; boundary="${boundary}"`, "", `--${boundary}`, textPart, `--${boundary}`, htmlPart, `--${boundary}--`].join("\r\n");
+  }
+  if (!input.attachments?.length) return [...headers, bodyPart].join("\r\n");
+  const boundary = `mix_${crypto.randomUUID()}`;
+  const files = input.attachments.map((file) => [
+    `Content-Type: ${file.mimeType}; name="${cleanFilename(file.filename).replace(/[^\x20-\x7e]/g, "_")}"`,
+    `Content-Disposition: attachment; ${filenameParam(cleanFilename(file.filename))}`,
+    "Content-Transfer-Encoding: base64", "", wrap76(file.bytes.toString("base64")),
+  ].join("\r\n"));
+  return [
+    ...headers, `Content-Type: multipart/mixed; boundary="${boundary}"`, "",
+    `--${boundary}`, bodyPart, ...files.flatMap((file) => [`--${boundary}`, file]), `--${boundary}--`,
+  ].join("\r\n");
 }
 
 const LABEL_CHANGES: Record<OrganizeAction, { addLabelIds?: string[]; removeLabelIds?: string[] }> = {
   archive: { removeLabelIds: ["INBOX"] },
-  move_to_inbox: { addLabelIds: ["INBOX"] },
+  move_to_inbox: { addLabelIds: ["INBOX"], removeLabelIds: ["SPAM"] },
+  mark_spam: { addLabelIds: ["SPAM"], removeLabelIds: ["INBOX"] },
   mark_read: { removeLabelIds: ["UNREAD"] },
   mark_unread: { addLabelIds: ["UNREAD"] },
   star: { addLabelIds: ["STARRED"] },
@@ -238,7 +430,7 @@ export class GmailClient implements MailApi {
       body: init.body ? JSON.stringify(init.body) : undefined,
     });
     if (response.status === 401) throw new MailAuthError();
-    if (!response.ok) throw new Error(`Gmail request failed (${response.status})`);
+    if (!response.ok) throw new GmailHttpError(response.status);
     return (response.status === 204 ? {} : await response.json()) as T;
   }
 
@@ -254,6 +446,7 @@ export class GmailClient implements MailApi {
 
   async search(query: string, max: number): Promise<MailSummary[]> {
     const params = new URLSearchParams({ q: query, maxResults: String(Math.min(Math.max(1, max), 10)) });
+    if (/\bin:(trash|spam|anywhere)\b/i.test(query)) params.set("includeSpamTrash", "true");
     const list = await this.call<{ messages?: { id: string }[] }>(`/messages?${params}`);
     const ids = (list.messages ?? []).map(({ id }) => id).filter((id) => ID.test(id));
     if (!ids.length) return [];
@@ -261,6 +454,21 @@ export class GmailClient implements MailApi {
     // One batch request instead of one request per message: a search costs two requests, whatever its size.
     const found = await this.batchMetadata(ids);
     return ids.flatMap((id) => { const message = found.get(id); return message ? [summarize(message)] : []; });
+  }
+
+  /** Cursor-based native mailbox browsing; cursors are opaque Gmail tokens. */
+  async listPage(query: string, pageToken?: string, labelId?: string): Promise<{ messages: MailSummary[]; nextCursor: string | null }> {
+    const params = new URLSearchParams({ q: query, maxResults: "20" });
+    if (pageToken) params.set("pageToken", pageToken);
+    if (labelId) {
+      if (!USER_LABEL_ID.test(labelId)) throw new Error("Invalid label id");
+      params.set("labelIds", labelId);
+    }
+    if (/\bin:(trash|spam|anywhere)\b/i.test(query)) params.set("includeSpamTrash", "true");
+    const page = await this.call<{ messages?: { id: string }[]; nextPageToken?: string }>(`/messages?${params}`);
+    const ids = (page.messages ?? []).map(m => m.id).filter(id => ID.test(id));
+    const found = ids.length ? await this.batchMetadata(ids) : new Map<string, RawMessage>();
+    return { messages: ids.flatMap(id => { const m = found.get(id); return m ? [summarize(m)] : []; }), nextCursor: page.nextPageToken ?? null };
   }
 
   private async batchMetadata(ids: string[]): Promise<Map<string, RawMessage>> {
@@ -272,7 +480,7 @@ export class GmailClient implements MailApi {
       body: buildBatchBody(ids, boundary),
     });
     if (response.status === 401) throw new MailAuthError();
-    if (!response.ok) throw new Error(`Gmail request failed (${response.status})`);
+    if (!response.ok) throw new GmailHttpError(response.status);
     const replyBoundary = response.headers.get("content-type")?.match(/boundary="?([^";]+)"?/)?.[1];
     if (!replyBoundary) throw new Error("Gmail returned an unreadable batch response");
     const found = parseBatchResponse(await response.text(), replyBoundary);
@@ -284,7 +492,50 @@ export class GmailClient implements MailApi {
   async read(id: string): Promise<MailMessage> {
     const message = await this.call<RawMessage>(`/messages/${this.checkIds([id])[0]}?format=full`);
     const text = messageText(message);
-    return { ...summarize(message), to: header(message, "To"), body: text.slice(0, MAX_BODY_CHARS), truncated: text.length > MAX_BODY_CHARS };
+    return {
+      ...summarize(message), to: header(message, "To"), body: text.slice(0, MAX_BODY_CHARS), truncated: text.length > MAX_BODY_CHARS,
+      attachments: messageAttachments(message.payload),
+    };
+  }
+
+  async labels(): Promise<MailLabel[]> {
+    const data = await this.call<{ labels?: { id: string; name: string; type?: string; color?: { backgroundColor?: string } }[] }>("/labels");
+    return (data.labels ?? [])
+      .filter((label) => label.type === "user" && USER_LABEL_ID.test(label.id))
+      .map((label) => ({ id: label.id, name: label.name, color: /^#[0-9a-f]{6}$/i.test(label.color?.backgroundColor ?? "") ? label.color!.backgroundColor! : null }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  async createLabel(name: string): Promise<MailLabel> {
+    const label = await this.call<{ id: string; name: string }>("/labels", {
+      method: "POST", body: { name: cleanLabelName(name), labelListVisibility: "labelShow", messageListVisibility: "show" },
+    });
+    return { id: label.id, name: label.name, color: null };
+  }
+
+  async relabel(ids: string[], add: string[], remove: string[]): Promise<void> {
+    const labels = [...add, ...remove];
+    if (!labels.length || labels.length > 20 || labels.some((id) => !USER_LABEL_ID.test(id))) throw new Error("Only your own labels can be added or removed");
+    if (add.some((id) => remove.includes(id))) throw new Error("A label cannot be added and removed at once");
+    await this.call("/messages/batchModify", { method: "POST", body: { ids: this.checkIds(ids), addLabelIds: add, removeLabelIds: remove } });
+  }
+
+  /** The bytes of one attachment, refusing anything over MAX_ATTACHMENT_BYTES. */
+  async attachment(messageId: string, partId: string): Promise<AttachmentFile> {
+    if (!PART_ID.test(partId)) throw new Error("Invalid attachment");
+    const id = this.checkIds([messageId])[0]!;
+    const message = await this.call<RawMessage>(`/messages/${id}?format=full`);
+    const part = findPartById(message.payload, partId);
+    if (!part?.filename) throw new GmailHttpError(404);
+    if ((part.body?.size ?? 0) > MAX_ATTACHMENT_BYTES) throw new Error("This attachment is larger than 15 MB. Open it in Gmail.");
+    let data = part.body?.data;
+    if (!data && part.body?.attachmentId) {
+      if (!/^[A-Za-z0-9_-]{1,4096}$/.test(part.body.attachmentId)) throw new Error("Invalid attachment");
+      data = (await this.call<{ data?: string }>(`/messages/${id}/attachments/${part.body.attachmentId}`)).data;
+    }
+    const bytes = new Uint8Array(Buffer.from(data ?? "", "base64url"));
+    if (bytes.byteLength > MAX_ATTACHMENT_BYTES) throw new Error("This attachment is larger than 15 MB. Open it in Gmail.");
+    return { filename: cleanFilename(part.filename), mimeType: MIME_TYPE.test(part.mimeType ?? "") ? part.mimeType!.toLowerCase() : "application/octet-stream", bytes };
   }
 
   async createDraft(input: DraftInput): Promise<DraftResult> {
@@ -302,9 +553,72 @@ export class GmailClient implements MailApi {
       subject ||= /^re:/i.test(originalSubject) ? originalSubject : `Re: ${originalSubject}`;
     }
     const recipients = cleanRecipients(to);
-    const raw = Buffer.from(buildMime({ to: recipients, subject, body: input.body, inReplyTo, references }), "utf8").toString("base64url");
-    const draft = await this.call<{ id: string }>("/drafts", { method: "POST", body: { message: { raw, ...(threadId ? { threadId } : {}) } } });
+    const attachments = decodeAttachments(input.attachments);
+    const markdown = input.format === "markdown";
+    const mime = buildMime({
+      to: recipients, subject, inReplyTo, references, attachments,
+      body: markdown ? markdownToPlain(input.body) : input.body,
+      html: markdown ? markdownToHtml(input.body) : undefined,
+    });
+    // Gmail's JSON endpoint takes small messages only; larger ones go through the media upload endpoint.
+    const draft = attachments.length
+      ? await this.uploadDraft(mime, threadId)
+      : await this.call<{ id: string }>("/drafts", { method: "POST", body: { message: { raw: Buffer.from(mime, "utf8").toString("base64url"), ...(threadId ? { threadId } : {}) } } });
     return { draftId: draft.id, to: recipients, subject: oneLine(subject) };
+  }
+
+  private async uploadDraft(mime: string, threadId?: string): Promise<{ id: string }> {
+    this.spend();
+    const boundary = `upload_${crypto.randomUUID()}`;
+    const body = [
+      `--${boundary}`, "Content-Type: application/json; charset=UTF-8", "", JSON.stringify({ message: threadId ? { threadId } : {} }),
+      `--${boundary}`, "Content-Type: message/rfc822", "", mime, `--${boundary}--`, "",
+    ].join("\r\n");
+    const response = await this.fetchFn("https://gmail.googleapis.com/upload/gmail/v1/users/me/drafts?uploadType=multipart", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${this.accessToken}`, "Content-Type": `multipart/related; boundary=${boundary}` },
+      body,
+    });
+    if (response.status === 401) throw new MailAuthError();
+    if (!response.ok) throw new GmailHttpError(response.status);
+    return (await response.json()) as { id: string };
+  }
+
+  /** The draft as it is in Gmail now, or null when it no longer exists (sent or deleted). */
+  async getDraft(draftId: string): Promise<DraftDetail | null> {
+    let draft: { id: string; message?: RawMessage };
+    try {
+      draft = await this.call(`/drafts/${this.checkIds([draftId])[0]}?format=full`);
+    } catch (err) {
+      if (err instanceof GmailHttpError && err.status === 404) return null;
+      throw err;
+    }
+    const message = draft.message;
+    if (!message) return null;
+    const plain = findPart(message.payload, "text/plain");
+    const html = plain?.trim() ? null : findPart(message.payload, "text/html");
+    const body = (plain?.trim() ? plain.trim() : html ? htmlToText(html) : message.snippet ?? "").slice(0, MAX_DRAFT_BODY_CHARS);
+    return {
+      draftId: draft.id, messageId: message.id,
+      to: addressList(header(message, "To")), cc: addressList(header(message, "Cc")), bcc: addressList(header(message, "Bcc")),
+      subject: header(message, "Subject"), body, attachments: attachmentsOf(message.payload),
+    };
+  }
+
+  /** Sender, subject, date and snippet of each id; ids Gmail no longer has are reported in `missing`. */
+  async summaries(ids: string[]): Promise<{ messages: MailSummary[]; missing: string[] }> {
+    this.checkIds(ids);
+    const messages: MailSummary[] = [];
+    const missing: string[] = [];
+    for (const id of ids) {
+      try {
+        messages.push(summarize(await this.call<RawMessage>(`/messages/${id}?${METADATA_QUERY}`)));
+      } catch (err) {
+        if (err instanceof GmailHttpError && err.status === 404) missing.push(id);
+        else throw err;
+      }
+    }
+    return { messages, missing };
   }
 
   async sendDraft(draftId: string): Promise<void> {

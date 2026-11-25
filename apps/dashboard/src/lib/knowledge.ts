@@ -7,7 +7,7 @@ import {
   type RetrievedChunk,
 } from "@chatbot/core";
 import { withTrustedContext } from "@chatbot/database";
-import { createEmbedder, type Embedder } from "@chatbot/rag-engine";
+import { createEmbedder, type Embedder } from "@chatbot/rag-engine/runtime";
 import { getPool } from "@/lib/db";
 
 const trusted = <T,>(fn: Parameters<typeof withTrustedContext<T>>[1]) => withTrustedContext(getPool(), fn);

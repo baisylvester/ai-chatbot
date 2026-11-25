@@ -7,3 +7,4 @@ export * from "./embed.ts";
 export * from "./voice.ts";
 export * from "./analytics.ts";
 export * from "./maintenance.ts";
+export * from "./client-conversations.ts";

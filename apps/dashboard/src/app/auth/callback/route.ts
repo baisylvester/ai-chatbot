@@ -1,6 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { cookies } from "next/headers";
 import type { EmailOtpType } from "@supabase/supabase-js";
 import { createAuthClient } from "@/lib/auth/server";
+import { authNext } from "@/lib/auth-next";
 
 const OTP_TYPES = new Set<EmailOtpType>(["signup", "invite", "magiclink", "recovery", "email_change", "email"]);
 
@@ -20,7 +22,11 @@ export async function GET(request: NextRequest) {
   }
 
   // Only ever redirect within this site.
-  const target = new URL(ok ? "/orgs" : "/auth/sign-in?error=link", request.nextUrl.origin);
+  const cookieStore = await cookies();
+  const next = authNext(params.get("next") ?? cookieStore.get("chat-auth-next")?.value);
+  cookieStore.set("chat-auth-next", "", { path: "/auth/callback", maxAge: 0 });
+  const target = new URL(ok ? next : "/auth/sign-in?error=link", request.nextUrl.origin);
+  if (!ok) target.searchParams.set("next", next);
   const response = NextResponse.redirect(target);
   response.headers.set("Cache-Control", "private, no-store");
   return response;

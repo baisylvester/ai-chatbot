@@ -18,7 +18,7 @@ import type { Chatbot } from "./services.ts";
 export const MAX_USER_MESSAGE_CHARS = 4000;
 const HISTORY_TURNS = 20;
 
-export type SessionSource = "widget" | "api" | "playground";
+export type SessionSource = "widget" | "api" | "playground" | "client";
 export type TrustedRunner = <T>(fn: (db: DbClient) => Promise<T>) => Promise<T>;
 
 export type TurnEvent =
@@ -56,8 +56,9 @@ export function modelCandidates(settings: ChatbotSettings, env: ProviderEnv): Mo
 async function openSession(
   db: DbClient,
   chatbot: Chatbot,
-  opts: { sessionId?: string; source: SessionSource; createdBy?: string; origin?: string },
+  opts: { sessionId?: string; source: SessionSource; createdBy?: string; origin?: string; ownerUserId?: string },
 ): Promise<{ sessionId: string; history: HistoryMessage[] }> {
+  if (opts.source === "client" && (!opts.ownerUserId || !opts.sessionId)) throw new DomainError("forbidden", "A private conversation is required");
   if (opts.sessionId) {
     const id = z.uuid().safeParse(opts.sessionId);
     if (!id.success) throw notFound("Conversation");
@@ -65,18 +66,20 @@ async function openSession(
     const session = (
       await db.query<{ id: string }>(
         `select id from chat_sessions
-         where id = $1 and chatbot_id = $2 and organization_id = $3 and source = $4 and expires_at > now()`,
-        [id.data, chatbot.id, chatbot.organization_id, opts.source],
+          where id = $1 and chatbot_id = $2 and organization_id = $3 and source = $4
+            and (expires_at > now() or (source = 'client' and expires_at is null))
+            and (source <> 'client' or owner_user_id = $5)`,
+        [id.data, chatbot.id, chatbot.organization_id, opts.source, opts.ownerUserId ?? null],
       )
     ).rows[0];
     if (!session) throw notFound("Conversation");
     const rows = (
       await db.query<HistoryMessage>(
         `select role, content from (
-           select role, content, created_at from messages
+            select role, content, created_at, sequence from messages
            where chat_session_id = $1 and organization_id = $2 and role in ('user', 'assistant')
-           order by created_at desc limit $3
-         ) recent order by created_at`,
+            order by sequence desc nulls last, created_at desc, id desc limit $3
+          ) recent order by sequence nulls last, created_at`,
         [session.id, chatbot.organization_id, HISTORY_TURNS * 2],
       )
     ).rows;
@@ -100,6 +103,12 @@ export async function* runConversationTurn(params: {
   source: SessionSource;
   createdBy?: string;
   origin?: string;
+  /** Private client turns must be scoped to their verified owner. */
+  ownerUserId?: string;
+  turnId?: string;
+  /** Internal lifecycle hooks; both run inside the same transaction as their messages. */
+  beforeWrite?: (db: DbClient) => Promise<void>;
+  afterPersist?: (db: DbClient, result: Extract<EngineEvent, { type: "done" | "error" }>, citations: Citation[]) => Promise<void>;
   env: ProviderEnv;
   signal?: AbortSignal;
   /** Knowledge retrieval for this chatbot (already tenant-scoped by the caller). Errors are logged and skipped. */
@@ -121,10 +130,11 @@ export async function* runConversationTurn(params: {
   const { chatbot } = params;
 
   const { sessionId, history } = await params.trusted(async (db) => {
+    await params.beforeWrite?.(db);
     const s = await openSession(db, chatbot, params);
     await db.query(
-      "insert into messages (organization_id, chat_session_id, role, content) values ($1, $2, 'user', $3)",
-      [chatbot.organization_id, s.sessionId, message],
+      "insert into messages (organization_id, chat_session_id, role, content, turn_id) values ($1, $2, 'user', $3, $4)",
+      [chatbot.organization_id, s.sessionId, message, params.turnId ?? null],
     );
     return s;
   });
@@ -153,19 +163,20 @@ export async function* runConversationTurn(params: {
   let final: EngineEvent | undefined;
   for await (const event of streamReply({ candidates, messages, signal: params.signal, tools: params.tools })) {
     if (event.type === "done" || event.type === "error") final = event;
-    yield event;
+    else yield event;
   }
   if (!final || (final.type !== "done" && final.type !== "error")) return;
   const result = final;
 
   // Persist even if the client has gone away; usage must be recorded for billing and analytics.
   await params.trusted(async (db) => {
+    await params.beforeWrite?.(db);
     const text = result.type === "done" ? result.text : result.partialText;
     if (text) {
       await db.query(
-        `insert into messages (organization_id, chat_session_id, role, content, provider, model, citations)
-         values ($1, $2, 'assistant', $3, $4, $5, $6)`,
-        [chatbot.organization_id, sessionId, text.slice(0, 20000), result.provider, result.model, JSON.stringify(citations)],
+        `insert into messages (organization_id, chat_session_id, role, content, provider, model, citations, turn_id)
+          values ($1, $2, 'assistant', $3, $4, $5, $6, $7)`,
+        [chatbot.organization_id, sessionId, text.slice(0, 20000), result.provider, result.model, JSON.stringify(citations), params.turnId ?? null],
       );
     }
     for (const failure of result.failedAttempts) {
@@ -195,7 +206,10 @@ export async function* runConversationTurn(params: {
         ],
       );
     }
+    await params.afterPersist?.(db, result, citations);
   });
+  // Completion means messages and usage have committed, including private turn status.
+  yield result;
 }
 
 /** Recent messages of a session the caller is allowed to see (RLS context: members of the organization). */

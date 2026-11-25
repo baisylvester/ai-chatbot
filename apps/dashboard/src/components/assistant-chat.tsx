@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
-import { Playground } from "@/components/playground";
+import { SyncedChat } from "@/components/synced-chat";
 
-export interface AssistantChatbot { id: string; name: string; organization: string }
+export interface AssistantChatbot { id: string; publicId: string; name: string; organization: string }
 
 const STORAGE_KEY = "assistant-chatbot";
 const MAIL_SUGGESTIONS = ["What's new in my inbox today?", "Which emails need a reply from me?", "Summarize unread mail from this week"];
@@ -12,23 +12,23 @@ const MAIL_SUGGESTIONS = ["What's new in my inbox today?", "Which emails need a 
  * The Assistant's chat: one of the user's chatbots answers, and when their mailbox is connected the
  * same chat also works in their Gmail. With several chatbots the user picks which one answers.
  */
-export function AssistantChat({ chatbots, mailbox }: { chatbots: AssistantChatbot[]; mailbox: boolean }) {
+export function AssistantChat({ chatbots, mailbox, userId }: { chatbots: AssistantChatbot[]; mailbox: boolean; userId: string }) {
   const id = useId();
   const [chatbotId, setChatbotId] = useState(chatbots[0]!.id);
 
   // Remember the last chatbot on this device. The page renders correctly without it.
   useEffect(() => {
     try {
-      const saved = window.localStorage.getItem(STORAGE_KEY);
+      const saved = window.localStorage.getItem(`${STORAGE_KEY}:${userId}`);
       if (saved && chatbots.some((bot) => bot.id === saved)) setChatbotId(saved);
     } catch {
       // Storage can be blocked; the first chatbot stays selected.
     }
-  }, [chatbots]);
+  }, [chatbots, userId]);
 
   function choose(next: string) {
     setChatbotId(next);
-    try { window.localStorage.setItem(STORAGE_KEY, next); } catch { /* not remembered */ }
+    try { window.localStorage.setItem(`${STORAGE_KEY}:${userId}`, next); } catch { /* not remembered */ }
   }
 
   return (
@@ -42,8 +42,7 @@ export function AssistantChat({ chatbots, mailbox }: { chatbots: AssistantChatbo
           </select>
         </label>
       )}
-      {/* A new key starts a fresh conversation when the chatbot changes. */}
-      <Playground key={chatbotId} chatbotId={chatbotId} welcomeMessage="" emailManager={mailbox}
+      <SyncedChat key={`${userId}:${chatbotId}`} chatbotId={chatbots.find(bot => bot.id === chatbotId)!.publicId} userId={userId} emailManager={mailbox}
         suggestions={mailbox ? MAIL_SUGGESTIONS : []}
         placeholder={mailbox ? "Ask a question, or tell the assistant what to do in your mail" : "Ask the assistant something"} />
     </div>

@@ -10,6 +10,7 @@ import { getPool } from "@/lib/db";
 import { getEmbedder } from "@/lib/knowledge";
 import { log } from "@/lib/log";
 import { runMailChecks } from "@/lib/mail-agent";
+import { runScheduledSends } from "@/lib/native-mail";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,8 +34,13 @@ export async function GET(request: Request) {
       log.warn("mail_check.run_failed", { error: err });
       return { mailboxesChecked: 0, notificationsSent: 0 };
     });
-    log.info("maintenance.done", { ...result, ...mail, ms: Date.now() - started });
-    return Response.json({ ok: true, ...result, ...mail, ms: Date.now() - started });
+    // Approved emails scheduled for later. Independent of the checks above.
+    const scheduled = await runScheduledSends().catch((err: unknown) => {
+      log.warn("mail_schedule.run_failed", { error: err });
+      return { scheduledSent: 0, scheduledFailed: 0 };
+    });
+    log.info("maintenance.done", { ...result, ...mail, ...scheduled, ms: Date.now() - started });
+    return Response.json({ ok: true, ...result, ...mail, ...scheduled, ms: Date.now() - started });
   } catch (err) {
     log.error("maintenance.failed", { error: err });
     return Response.json({ error: { code: "server_error", message: "Maintenance failed" } }, { status: 500 });

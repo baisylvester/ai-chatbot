@@ -83,4 +83,18 @@ describe("ChatClient", () => {
     await client.send("hi", { onToken: () => undefined, onDone: () => undefined, onError: (m) => (error = m) });
     expect(error).toBe("This website is not allowed to use this chatbot");
   });
+
+  it("does not report a partial stream as a completed reply", async () => {
+    sessionStorageStub.clear();
+    globalThis.fetch = (async (url: string) => url.endsWith("/sessions")
+      ? Response.json({ token: "tok", expiresAt: new Date(Date.now() + 3600000).toISOString() })
+      : new Response(streamOf(['event: token\ndata: {"text":"partial"}\n\n']))) as typeof fetch;
+    let done = false;
+    let error = "";
+    await new ChatClient({ apiUrl: "https://platform.example", chatbotId: "cb_abcdefghijklmnop" }).send("Hi", {
+      onToken: () => undefined, onDone: () => { done = true; }, onError: message => { error = message; },
+    });
+    expect(done).toBe(false);
+    expect(error).toContain("before the reply was saved");
+  });
 });

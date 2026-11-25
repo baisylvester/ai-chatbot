@@ -1,10 +1,13 @@
 /** Domain errors with stable codes, safe to show to the signed-in user. */
 export class DomainError extends Error {
   readonly code: "not_found" | "forbidden" | "conflict" | "invalid";
-  constructor(code: DomainError["code"], message: string) {
+  /** Optional machine-readable detail (for example `conversation_busy`), additive to `code`. */
+  readonly reason?: string;
+  constructor(code: DomainError["code"], message: string, reason?: string) {
     super(message);
     this.name = "DomainError";
     this.code = code;
+    if (reason) this.reason = reason;
   }
 }
 

@@ -2,10 +2,12 @@
  * OpenAPI 3.1 description of the public API (widget + server-to-server). Served at
  * /api/v1/openapi.json and rendered on /docs. Dashboard-only routes are intentionally excluded.
  */
+import { clientPaths, clientSchemas } from "./client-openapi";
+
 const error = {
   type: "object",
   required: ["error"],
-  properties: { error: { type: "object", required: ["code", "message"], properties: { code: { type: "string" }, message: { type: "string" } } } },
+  properties: { error: { type: "object", required: ["code", "message"], properties: { code: { type: "string" }, message: { type: "string" }, reason: { type: "string", description: "Optional machine-readable detail (client API)" } } } },
 } as const;
 
 const citation = {
@@ -36,16 +38,19 @@ export function openApiSpec(serverUrl: string) {
     },
     servers: [{ url: serverUrl }],
     tags: [
+      { name: "Client", description: "Private, persistent conversations for signed-in web, Android, iOS and macOS clients. User JWT required; first-party web also supports same-origin session cookies." },
       { name: "Widget", description: "Used by embed.js in visitors' browsers. Requires an allowed Origin." },
       { name: "Voice", description: "Voice features for widgets (standard and realtime modes)." },
       { name: "Server", description: "Server-to-server chat with a private API key. Not available from browsers (no CORS)." },
     ],
     components: {
       securitySchemes: {
+        userToken: { type: "http", scheme: "bearer", bearerFormat: "JWT", description: "Supabase user access token for this project. Never substitute a widget token, service-role key, or organization API key." },
         sessionToken: { type: "http", scheme: "bearer", description: "Widget session token from POST /api/v1/embed/sessions (valid 2 hours)." },
         apiKey: { type: "http", scheme: "bearer", description: "Private API key (cbk_…) created on the organization page. Keep it on your server." },
       },
       schemas: {
+        ...clientSchemas,
         Error: error,
         Citation: citation,
         PublicConfig: {
@@ -63,6 +68,7 @@ export function openApiSpec(serverUrl: string) {
       },
     },
     paths: {
+      ...clientPaths,
       "/api/v1/embed/config": {
         get: {
           tags: ["Widget"],

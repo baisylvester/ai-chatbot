@@ -4,6 +4,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { encryptSecret, exchangeCode, GmailClient, MailAuthError, saveConnection } from "@chatbot/mail-agent";
 import { log } from "@/lib/log";
 import { mailDb, mailSetup } from "@/lib/mail-agent";
+import { handleNativeCallback } from "@/lib/native-mail";
 import { getCurrentUser } from "@/lib/session";
 
 export const runtime = "nodejs";
@@ -19,6 +20,16 @@ export async function GET(request: NextRequest) {
     response.headers.set("Cache-Control", "private, no-store");
     return response;
   };
+
+  // A native app (Android/iOS) has no state cookie in this browser: when the cookie does not match, the
+  // state may belong to a single-use native transaction, which returns to the app. The browser flow below
+  // is unchanged.
+  const cookieState = Buffer.from(request.cookies.get(STATE_COOKIE)?.value ?? "");
+  const queryState = Buffer.from(request.nextUrl.searchParams.get("state") ?? "");
+  if (!cookieState.length || cookieState.length !== queryState.length || !timingSafeEqual(cookieState, queryState)) {
+    const native = await handleNativeCallback(request.nextUrl.searchParams);
+    if (native) return native;
+  }
 
   const user = await getCurrentUser();
   if (!user) return NextResponse.redirect(new URL("/auth/sign-in", home));

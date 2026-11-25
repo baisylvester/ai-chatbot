@@ -3,12 +3,14 @@ import { redirect } from "next/navigation";
 import { ActionForm, Field } from "@/components/action-form";
 import { getCurrentUser } from "@/lib/session";
 import { signInAction } from "../actions";
+import { authNext } from "@/lib/auth-next";
 
 export const dynamic = "force-dynamic";
 
-export default async function SignInPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
-  if (await getCurrentUser()) redirect("/orgs");
-  const { error } = await searchParams;
+export default async function SignInPage({ searchParams }: { searchParams: Promise<{ error?: string; next?: string }> }) {
+  const { error, next } = await searchParams;
+  const target = authNext(next);
+  if (await getCurrentUser()) redirect(target);
   return (
     <main className="mx-auto max-w-sm px-4 py-12">
       <h1 className="text-xl font-semibold">Sign in</h1>
@@ -18,12 +20,13 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
         </p>
       )}
       <ActionForm action={signInAction} submitLabel="Sign in" className="mt-6 flex flex-col gap-4">
+        <input type="hidden" name="next" value={target} />
         <Field label="Email" name="email" type="email" />
         <Field label="Password" name="password" type="password" />
       </ActionForm>
       <p className="mt-6 text-sm text-zinc-600 dark:text-zinc-400">
         No account?{" "}
-        <Link href="/auth/sign-up" className="underline">
+        <Link href={`/auth/sign-up?next=${encodeURIComponent(target)}`} className="underline">
           Create one
         </Link>
       </p>

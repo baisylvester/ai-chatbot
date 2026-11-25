@@ -99,11 +99,11 @@ export default async function AgentPage({ searchParams }: { searchParams: Promis
       <Section
         title="Ask the assistant"
         description={chatbots.length > 0
-          ? `${mailReady ? "Ask anything, or tell it what to do in your mail." : "Ask anything. Connect Gmail above to let it work in your mail too."} Only you get mailbox access: visitors of your websites never do. Conversations here are saved under Conversations, where members of the organization can read them.`
+          ? `${mailReady ? "Ask anything, or tell it what to do in your mail." : "Ask anything. Connect Gmail above to let it work in your mail too."} Only you get mailbox access. New conversations are private to your account and sync across your devices. Older test conversations remain in the organization's history.`
           : undefined}
       >
         {chatbots.length > 0 ? (
-          <AssistantChat chatbots={chatbots} mailbox={mailReady} />
+          <AssistantChat key={user.id} chatbots={chatbots} mailbox={mailReady} userId={user.id} />
         ) : mailReady ? (
           <>
             <MailAgentChat action={chatAction} />

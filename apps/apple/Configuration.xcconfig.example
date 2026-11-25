@@ -1,0 +1,7 @@
+// These are PUBLIC configuration values. Never put service-role or organization API keys here.
+// Xcode treats // as a comment; $() preserves the URL slash pair.
+CHATBOT_API_URL = https:/$()/your-platform.example
+CHATBOT_PUBLIC_ID = cb_replace_with_your_public_chatbot_id
+SUPABASE_URL = https:/$()/your-project.supabase.co
+SUPABASE_PUBLISHABLE_KEY = sb_publishable_replace_me
+// DEVELOPMENT_TEAM = YourAppleTeamId

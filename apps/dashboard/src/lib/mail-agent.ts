@@ -7,7 +7,7 @@ import { withTrustedContext, type DbClient } from "@chatbot/database";
 import {
   addNotification, buildDigest, createAction, decryptSecret, deletePushSubscription, describeActionState, dueConnections, getConnection,
   GmailClient, listPushEndpoints, listRecentActions, MailAuthError, markRevoked, refreshAccessToken, runMailAgent, sendPush, touchChecked,
-  type GoogleOAuthConfig, type MailConnection, type VapidKeys,
+  readAttachmentText, type AttachmentFile, type GoogleOAuthConfig, type MailConnection, type VapidKeys,
 } from "@chatbot/mail-agent";
 import { providerSchema, type Provider } from "@chatbot/shared";
 import { getPool } from "@/lib/db";
@@ -93,6 +93,18 @@ export async function openMailbox(userId: string): Promise<{ connection: MailCon
   }
 }
 
+/**
+ * Text of an attachment, or null for a type this server cannot read. Uses no heavy parsers (the
+ * Worker has a size limit): text and HTML directly, DOCX by unzipping, PDF and images through Gemini.
+ */
+export async function attachmentPlainText(file: AttachmentFile): Promise<string | null> {
+  const setup = mailSetup();
+  return readAttachmentText(file, {
+    geminiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim() || null,
+    geminiModel: setup.provider === "gemini" ? setup.model : undefined,
+  });
+}
+
 /** Mailboxes checked per maintenance run. Keeps one run well inside the platform's outgoing-request limit. */
 const CHECKS_PER_RUN = 3;
 
@@ -155,7 +167,7 @@ export function emailManagerTool(userId: string): EngineTool {
   return {
     name: "email_manager",
     description:
-      "Works in the signed-in user's own Gmail mailbox: search, read and summarize mail, star, archive, mark read or unread, draft emails and replies, and ask to move mail to Trash. " +
+      "Works in the signed-in user's own Gmail mailbox: search, read and summarize mail and document attachments, star, archive, mark read or unread, add or remove labels, draft emails and replies (plain or formatted), and ask to move mail to Trash. " +
       "Pass the whole request in plain words, with any details from earlier in the conversation, because the email manager does not see this chat. " +
       "It never sends or deletes on its own: drafts and trash requests wait for the user's approval on the Assistant page.",
     schema: emailRequestSchema,
@@ -170,8 +182,10 @@ export function emailManagerTool(userId: string): EngineTool {
           model: agentModel(4096),
           mail: gmail,
           userEmail: connection.email,
+          extractText: attachmentPlainText,
           queueAction: (kind, summary, payload) => mailDb((db) => createAction(db, userId, kind, summary, payload)),
         }, [{ role: "user", content: parsed.data.request }]);
+        log.info("agent.tool_completed", { tools: result.steps.map(step => step.tool), queued: result.queued });
         // The chatbot cannot see the approval buttons, so it is told what the user did with each request.
         const recent = await mailDb((db) => listRecentActions(db, userId));
         return {
