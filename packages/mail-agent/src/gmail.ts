@@ -39,7 +39,8 @@ export function googleAuthUrl(config: GoogleOAuthConfig, state: string, codeChal
     scope,
     // offline + consent: Google only returns a refresh token on a fresh consent.
     access_type: "offline",
-    prompt: "consent",
+    // select_account: Google always asks which account, so a different signed-in account is never used silently.
+    prompt: "select_account consent",
     state,
     ...(codeChallenge ? { code_challenge: codeChallenge, code_challenge_method: "S256" } : {}),
   }).toString();
