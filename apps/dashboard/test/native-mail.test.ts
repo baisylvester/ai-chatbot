@@ -51,7 +51,8 @@ let gmail: { getDraft: ReturnType<typeof vi.fn>; summaries: ReturnType<typeof vi
 beforeEach(() => {
   vi.clearAllMocks();
   gmail = { getDraft: vi.fn(async () => draft), summaries: vi.fn(), sendDraft: vi.fn(async () => undefined), trash: vi.fn(async () => undefined) };
-  m.open.mockResolvedValue({ connection: { email: "me@example.com" }, gmail });
+  m.open.mockResolvedValue({ connection: { id: "conn-1", email: "me@example.com" }, gmail });
+  m.save.mockResolvedValue("conn-1");
   m.setup.mockReturnValue({ oauth: { clientId: "client", clientSecret: "secret", redirectUri: "https://platform.test/api/agent/gmail/callback" }, tokenSecret: "0123456789abcdef0123456789abcdef-test", modelReady: true });
   m.getAction.mockResolvedValue(sendAction());
 });
@@ -202,7 +203,7 @@ describe("connect", () => {
 describe("complete", () => {
   const verifier = "v".repeat(43), code = "c".repeat(43);
   const tx = (over: object = {}) => ({
-    id: TX, userId: USER, chatbotPublicId: "cb_abcdefghijklmnop", verifierChallenge: sha256b64url(verifier), completionHash: sha256hex(code),
+    id: TX, userId: USER, provider: "gmail", chatbotPublicId: "cb_abcdefghijklmnop", verifierChallenge: sha256b64url(verifier), completionHash: sha256hex(code),
     sealedRefreshToken: "v1.sealed", email: "me@example.com", error: null, expiresAt: new Date(Date.now() + 60_000), callbackAt: new Date(), completedAt: null, ...over,
   });
   const input = { transactionId: TX, code, verifier };
@@ -224,7 +225,7 @@ describe("complete", () => {
     m.lock.mockResolvedValue(tx());
     expect(await completeNativeConnect(USER, input)).toEqual({ ok: true, chatbotPublicId: "cb_abcdefghijklmnop" });
     expect(m.lock).toHaveBeenCalledWith({}, USER, TX);
-    expect(m.save).toHaveBeenCalledWith({}, USER, "me@example.com", "v1.sealed");
+    expect(m.save).toHaveBeenCalledWith({}, USER, "me@example.com", "v1.sealed", "gmail");
     expect(m.finishTx).toHaveBeenCalledWith({}, TX);
   });
 });

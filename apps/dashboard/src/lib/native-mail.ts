@@ -17,6 +17,9 @@ import {
   encryptSecret, exchangeCode, findNativeTransactionByState, finishAction, finishNativeTransaction, getAction, getConnection, GmailClient,
   GmailHttpError, googleAuthUrl, listActions, lockNativeTransaction, MailAuthError, markUncertain, recordNativeCallback, rejectPendingAction,
   MAX_SCHEDULE_DAYS, MIN_SCHEDULE_SECONDS, revokeToken, saveConnection, scheduleAction, unscheduleAction, type DraftDetail, type MailSummary, type NativeMailAction, type SendPayload, type TrashPayload,
+  listConnections, selectConnection, MAX_MAILBOXES, type MailProvider, type MailboxClient,
+  outlookAuthUrl, exchangeOutlookCode, OutlookClient, ImapClient, imapSettingsFor, type ImapSettings,
+  CALENDAR_SCOPE, getCalendar, saveCalendar, deleteCalendar, saveFcmToken, deleteFcmToken,
 } from "@chatbot/mail-agent";
 import { clientError } from "@/lib/client-api";
 import { getPool } from "@/lib/db";
@@ -48,28 +51,42 @@ export async function mailRole(userId: string, bot: Chatbot): Promise<MailRole> 
   }
 }
 
+export interface MailboxItem { id: string; provider: MailProvider; email: string; status: "active" | "revoked"; selected: boolean }
 export interface MailStatus {
-  provider: "gmail";
+  /** The selected mailbox's provider ("gmail" when none is connected, for older clients). */
+  provider: MailProvider;
   serverReady: boolean;
   eligible: boolean;
   role: MailRole;
-  connection: { email: string; status: "active" | "revoked" } | null;
+  /** The selected mailbox: the assistant and requests without a mailboxId use it. */
+  connection: { id: string; provider: MailProvider; email: string; status: "active" | "revoked" } | null;
+  mailboxes: MailboxItem[];
+  /** Which kinds of mailbox this server can connect. */
+  providers: { gmail: boolean; outlook: boolean; imap: boolean; calendar: boolean };
+  /** The connected Google Calendar (opt-in), or null. */
+  calendar: { email: string } | null;
   pendingApprovals: number;
 }
 
 export async function mailStatus(userId: string, bot: Chatbot): Promise<MailStatus> {
   const setup = mailSetup();
   const role = await mailRole(userId, bot);
-  const { connection, pending } = await mailDb(async (db) => ({
-    connection: await getConnection(db, userId),
+  const { connections, pending, calendar } = await mailDb(async (db) => ({
+    connections: await listConnections(db, userId),
     pending: await countPendingActions(db, userId),
+    calendar: await getCalendar(db, userId),
   }));
+  const selected = connections[0] ?? null;
+  const providers = { gmail: !!setup.oauth && !!setup.tokenSecret, outlook: !!setup.microsoft && !!setup.tokenSecret, imap: setup.imapReady, calendar: !!setup.oauth && !!setup.tokenSecret };
   return {
-    provider: "gmail",
-    serverReady: !!setup.oauth && !!setup.tokenSecret && setup.modelReady,
+    provider: selected?.provider ?? "gmail",
+    serverReady: (providers.gmail || providers.outlook || providers.imap) && setup.modelReady,
     eligible: role === "owner" || role === "admin",
     role,
-    connection: connection ? { email: connection.email, status: connection.status } : null,
+    connection: selected ? { id: selected.id, provider: selected.provider, email: selected.email, status: selected.status } : null,
+    mailboxes: connections.map((c) => ({ id: c.id, provider: c.provider, email: c.email, status: c.status, selected: c.id === selected?.id })),
+    providers,
+    calendar: calendar ? { email: calendar.email } : null,
     pendingApprovals: pending,
   };
 }
@@ -78,24 +95,52 @@ export async function mailStatus(userId: string, bot: Chatbot): Promise<MailStat
 
 export const VERIFIER_CHALLENGE = /^[A-Za-z0-9_-]{43}$/;
 
-export async function startNativeConnect(userId: string, bot: Chatbot, verifierChallenge: string): Promise<Response> {
+export async function startNativeConnect(userId: string, bot: Chatbot, verifierChallenge: string, provider: "gmail" | "outlook" | "gcal" = "gmail"): Promise<Response> {
   const role = await mailRole(userId, bot);
   if (role !== "owner" && role !== "admin") {
     return clientError(403, "forbidden", "Only owners and admins of this chatbot's organization can connect a mailbox.", "mail_role_required");
   }
-  const { oauth, tokenSecret } = mailSetup();
-  if (!oauth || !tokenSecret) return clientError(503, "unavailable", "Gmail is not set up on this server yet.", "mail_not_configured");
+  const { oauth, microsoft, tokenSecret } = mailSetup();
+  if ((provider === "gmail" || provider === "gcal") && (!oauth || !tokenSecret)) return clientError(503, "unavailable", "Gmail is not set up on this server yet.", "mail_not_configured");
+  if (provider === "outlook" && (!microsoft || !tokenSecret)) return clientError(503, "unavailable", "Outlook is not set up on this server yet.", "mail_not_configured");
   const state = randomToken();
   const pkceVerifier = randomToken();
   const tx = await mailDb(async (db) => {
     await cleanupNativeTransactions(db);
-    return createNativeTransaction(db, userId, { chatbotPublicId: bot.public_id, stateHash: sha256hex(state), verifierChallenge, pkceVerifier });
+    return createNativeTransaction(db, userId, { chatbotPublicId: bot.public_id, stateHash: sha256hex(state), verifierChallenge, pkceVerifier, provider });
   });
   return Response.json({
     transactionId: tx.id,
-    authorizationUrl: googleAuthUrl(oauth, state, sha256b64url(pkceVerifier)),
+    authorizationUrl: provider === "outlook" ? outlookAuthUrl(microsoft!, state, sha256b64url(pkceVerifier))
+      : googleAuthUrl(oauth!, state, sha256b64url(pkceVerifier), provider === "gcal" ? CALENDAR_SCOPE : undefined),
     expiresAt: new Date(tx.expiresAt).toISOString(),
   });
+}
+
+/**
+ * Connects an IMAP mailbox with an app password. The server signs in once to check it, then stores the
+ * password encrypted (like Gmail tokens); it is deleted when the mailbox is disconnected.
+ */
+export async function connectImap(userId: string, bot: Chatbot, input: { email: string; password: string; settings?: Partial<ImapSettings> }) {
+  const role = await mailRole(userId, bot);
+  if (role !== "owner" && role !== "admin") throw new DomainError("forbidden", "Only owners and admins of this chatbot's organization can connect a mailbox.", "mail_role_required");
+  const { imapReady, tokenSecret } = mailSetup();
+  if (!imapReady || !tokenSecret) throw new DomainError("conflict", "IMAP accounts are not available on this server.", "mail_not_configured");
+  const email = input.email.trim().toLowerCase();
+  const settings = imapSettingsFor(email, input.settings);
+  if (!settings) throw new DomainError("invalid", "Enter the IMAP and SMTP servers for this address (ports 993 and 465 or 587).", "imap_settings_required");
+  try {
+    await new ImapClient(settings, email, input.password).verify();
+  } catch (err) {
+    if (err instanceof MailAuthError) throw new DomainError("invalid", err.message, "imap_login_failed");
+    log.warn("mail.imap_verify_failed", { error: err });
+    throw new DomainError("invalid", "Could not reach this mail server. Check the server names and try again.", "imap_unreachable");
+  }
+  const sealed = await encryptSecret(input.password, tokenSecret);
+  const id = await mailDb((db) => saveConnection(db, userId, email, sealed, "imap", settings));
+  if (!id) throw new DomainError("conflict", `You can connect up to ${MAX_MAILBOXES} mailboxes. Disconnect one first.`, "mailbox_limit");
+  log.info("mail.connected", { userId, provider: "imap", via: "native" });
+  return { id, email, provider: "imap" as const };
 }
 
 /** Where Google's callback sends the browser back to the app. Only a custom scheme or https is accepted. */
@@ -136,12 +181,27 @@ export async function handleNativeCallback(params: URLSearchParams): Promise<Res
   };
   const code = params.get("code");
   if (params.get("error") || !code) return fail("denied");
-  const { oauth, tokenSecret } = mailSetup();
-  if (!oauth || !tokenSecret) return fail("failed");
+  const { oauth, microsoft, tokenSecret } = mailSetup();
+  if (!tokenSecret || (tx.provider === "outlook" ? !microsoft : !oauth)) return fail("failed");
   try {
-    const tokens = await exchangeCode(oauth, code, fetch, tx.pkceVerifier);
-    const { email } = await new GmailClient(tokens.accessToken).profile();
-    const sealedRefreshToken = await encryptSecret(tokens.refreshToken, tokenSecret);
+    let email: string; let refreshToken: string;
+    if (tx.provider === "outlook") {
+      const tokens = await exchangeOutlookCode(microsoft!, code, tx.pkceVerifier);
+      email = (await new OutlookClient(tokens.accessToken).profile()).email;
+      refreshToken = tokens.refreshToken;
+    } else if (tx.provider === "gcal") {
+      const tokens = await exchangeCode(oauth!, code, fetch, tx.pkceVerifier, CALENDAR_SCOPE);
+      // The primary calendar's id is the account's address.
+      const primary = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary", { headers: { Authorization: `Bearer ${tokens.accessToken}` } });
+      email = primary.ok ? String(((await primary.json()) as { id?: string }).id ?? "") : "";
+      refreshToken = tokens.refreshToken;
+    } else {
+      const tokens = await exchangeCode(oauth!, code, fetch, tx.pkceVerifier);
+      email = (await new GmailClient(tokens.accessToken).profile()).email;
+      refreshToken = tokens.refreshToken;
+    }
+    if (!email) throw new MailAuthError("This account has no mailbox address.");
+    const sealedRefreshToken = await encryptSecret(refreshToken, tokenSecret);
     const completion = randomToken();
     await mailDb((db) => recordNativeCallback(db, tx.id, { completionHash: sha256hex(completion), sealedRefreshToken, email }));
     return nativeRedirect({ tx: tx.id, code: completion });
@@ -168,7 +228,10 @@ export async function completeNativeConnect(userId: string, input: { transaction
     if (!safeEqual(sha256hex(input.code), tx.completionHash) || !safeEqual(sha256b64url(input.verifier), tx.verifierChallenge)) {
       return fail(400, "invalid", "This connection could not be verified. Start again from the app.", "verification_failed");
     }
-    await saveConnection(db, userId, tx.email, tx.sealedRefreshToken);
+    if (tx.provider === "gcal") await saveCalendar(db, userId, tx.email, tx.sealedRefreshToken);
+    else if (!await saveConnection(db, userId, tx.email, tx.sealedRefreshToken, tx.provider)) {
+      return fail(409, "conflict", `You can connect up to ${MAX_MAILBOXES} mailboxes. Disconnect one first.`, "mailbox_limit");
+    }
     await finishNativeTransaction(db, tx.id);
     log.info("mail.connected", { userId, via: "native" });
     return { ok: true, chatbotPublicId: tx.chatbotPublicId };
@@ -177,15 +240,35 @@ export async function completeNativeConnect(userId: string, input: { transaction
 
 // ------------------------------------------------------------------ disconnect
 
-export async function disconnectMailbox(userId: string): Promise<void> {
+/** Disconnects one mailbox (the selected one without [connectionId]); Google tokens are revoked too. */
+export async function disconnectMailbox(userId: string, connectionId?: string | null): Promise<void> {
   const { tokenSecret } = mailSetup();
-  const connection = await mailDb((db) => getConnection(db, userId));
-  if (connection && tokenSecret) {
+  const connection = await mailDb((db) => getConnection(db, userId, connectionId));
+  if (!connection) return;
+  if (connection.provider === "gmail" && tokenSecret) {
     const token = await decryptSecret(connection.refreshTokenEnc, tokenSecret).catch(() => null);
     if (token) await revokeToken(token);
   }
-  await mailDb((db) => deleteConnection(db, userId));
-  log.info("mail.disconnected", { userId, via: "native" });
+  await mailDb((db) => deleteConnection(db, userId, connection.id));
+  log.info("mail.disconnected", { userId, provider: connection.provider, via: "native" });
+}
+
+/** Removes the Google Calendar connection and revokes its token. Mail is not affected. */
+export async function disconnectCalendar(userId: string): Promise<void> {
+  const { tokenSecret } = mailSetup();
+  const calendar = await mailDb((db) => getCalendar(db, userId));
+  if (!calendar) return;
+  if (tokenSecret) {
+    const token = await decryptSecret(calendar.refreshTokenEnc, tokenSecret).catch(() => null);
+    if (token) await revokeToken(token);
+  }
+  await mailDb((db) => deleteCalendar(db, userId));
+  log.info("calendar.disconnected", { userId });
+}
+
+/** Makes another of the user's mailboxes the selected one. */
+export async function selectMailbox(userId: string, connectionId: string): Promise<boolean> {
+  return mailDb((db) => selectConnection(db, userId, connectionId));
 }
 
 // ------------------------------------------------------------------ approval requests
@@ -233,12 +316,12 @@ export function trashVersion(ids: string[]): string {
   return sha256hex(canonical({ kind: "trash", ids: [...ids].sort() }));
 }
 
-interface Mailbox { connection: { email: string }; gmail: Pick<GmailClient, "getDraft" | "summaries" | "sendDraft" | "trash"> }
+interface Mailbox { connection: { email: string }; gmail: Pick<MailboxClient, "getDraft" | "summaries" | "sendDraft" | "trash"> }
 
-/** Opens the mailbox, tagging failures with a machine-readable reason. */
-async function mailbox(userId: string): Promise<Mailbox> {
+/** Opens the action's own mailbox (or the selected one), tagging failures with a machine-readable reason. */
+async function mailbox(userId: string, connectionId?: string | null): Promise<Mailbox> {
   try {
-    return await openMailbox(userId);
+    return await openMailbox(userId, connectionId);
   } catch (err) {
     if (err instanceof DomainError) {
       const reason = err.code === "not_found" ? "mailbox_not_connected" : err.code === "forbidden" ? "mailbox_revoked" : "mail_not_configured";
@@ -253,7 +336,7 @@ const actionNotFound = () => new DomainError("not_found", "This request was not 
 export async function actionDetail(userId: string, actionId: string) {
   const action = await mailDb((db) => getAction(db, userId, actionId));
   if (!action) throw actionNotFound();
-  const { connection, gmail } = await mailbox(userId);
+  const { connection, gmail } = await mailbox(userId, action.connectionId);
   if (action.kind === "send") {
     const payload = action.payload as SendPayload;
     const draft = await gmail.getDraft(payload.draftId);
@@ -294,7 +377,7 @@ export async function approveAction(userId: string, actionId: string, version: s
   if (existing.status !== "pending") throw new DomainError("conflict", "This request was already handled.", "already_handled");
   if (sendAt && existing.kind !== "send") throw new DomainError("invalid", "Only emails can be scheduled.", "schedule_invalid");
   if (sendAt && !validSendAt(sendAt)) throw new DomainError("invalid", `Choose a time between one minute and ${MAX_SCHEDULE_DAYS} days from now.`, "schedule_invalid");
-  const { gmail } = await mailbox(userId);
+  const { gmail } = await mailbox(userId, existing.connectionId);
   let current: string | null;
   if (existing.kind === "send") {
     const draft = await gmail.getDraft((existing.payload as SendPayload).draftId);
@@ -361,8 +444,8 @@ const SENDS_PER_RUN = 5;
  */
 export async function runScheduledSends(): Promise<{ scheduledSent: number; scheduledFailed: number }> {
   const result = { scheduledSent: 0, scheduledFailed: 0 };
-  const { oauth, tokenSecret } = mailSetup();
-  if (!oauth || !tokenSecret) return result;
+  const { tokenSecret } = mailSetup();
+  if (!tokenSecret) return result;
   for (const due of await mailDb((db) => claimDueSends(db, SENDS_PER_RUN))) {
     const fail = async (message: string) => {
       result.scheduledFailed++;
@@ -370,7 +453,7 @@ export async function runScheduledSends(): Promise<{ scheduledSent: number; sche
     };
     let gmail: Mailbox["gmail"];
     try {
-      gmail = (await openMailbox(due.userId)).gmail;
+      gmail = (await openMailbox(due.userId, due.connectionId)).gmail;
     } catch (err) {
       await fail(err instanceof DomainError ? `Not sent at the scheduled time: ${err.message}` : "Not sent at the scheduled time: the mailbox could not be opened.");
       continue;
@@ -402,4 +485,31 @@ export async function rejectAction(userId: string, actionId: string) {
   if (!rejected.action) throw actionNotFound();
   if (!rejected.ok) throw new DomainError("conflict", "This request was already handled.", "already_handled");
   return { action: toActionItem(rejected.action) };
+}
+
+// ------------------------------------------------------------------ native push (FCM)
+
+const FCM_TOKEN = /^[A-Za-z0-9_:-]{20,4096}$/;
+
+/** Registers (POST) or unregisters (DELETE) this phone's Firebase token for new-mail notifications. */
+export async function pushTokenRequest(request: Request, userId: string, register: boolean): Promise<Response> {
+  const body = (await request.json().catch(() => null)) as { token?: unknown; platform?: unknown } | null;
+  const token = typeof body?.token === "string" && FCM_TOKEN.test(body.token) ? body.token : null;
+  const platform = body?.platform === "ios" ? "ios" : "android";
+  if (!token) return clientError(400, "invalid", "A valid push token is required.");
+  if (!register) { await mailDb((db) => deleteFcmToken(db, userId, token)); return new Response(null, { status: 204 }); }
+  if (!mailSetup().fcm) return clientError(503, "unavailable", "Push notifications are not set up on this server yet.", "push_not_configured");
+  await mailDb((db) => saveFcmToken(db, userId, token, platform));
+  return Response.json({ ok: true });
+}
+
+/** POST /mail/connect/imap body, checked here so the route stays a thin wrapper. */
+export function parseImapRequest(body: unknown): { chatbotId: string; email: string; password: string; settings: Partial<ImapSettings> } | null {
+  if (!body || typeof body !== "object") return null;
+  const b = body as Record<string, unknown>;
+  const text = (v: unknown, max: number) => (typeof v === "string" && v.trim().length > 0 && v.length <= max ? v.trim() : undefined);
+  const chatbotId = text(b.chatbotId, 80); const email = text(b.email, 320); const password = typeof b.password === "string" && b.password.length >= 4 && b.password.length <= 200 ? b.password : undefined;
+  if (!chatbotId || !email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !password) return null;
+  const smtpPort = b.smtpPort === 465 || b.smtpPort === 587 ? b.smtpPort : undefined;
+  return { chatbotId, email, password, settings: { imapHost: text(b.imapHost, 253), smtpHost: text(b.smtpHost, 253), username: text(b.username, 320), smtpPort } };
 }

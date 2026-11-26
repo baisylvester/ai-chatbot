@@ -22,12 +22,13 @@ export interface NativeTransaction {
   expiresAt: Date;
   callbackAt: Date | null;
   completedAt: Date | null;
+  provider: "gmail" | "outlook" | "gcal";
 }
 
 const TX = `id, user_id as "userId", chatbot_public_id as "chatbotPublicId", pkce_verifier as "pkceVerifier", verifier_challenge as "verifierChallenge",
   completion_hash as "completionHash", sealed_refresh_token as "sealedRefreshToken", email, error,
-  expires_at as "expiresAt", callback_at as "callbackAt", completed_at as "completedAt"`;
-const ACTION = `id, kind, summary, payload, status, error, created_at as "createdAt", resolved_at as "resolvedAt", scheduled_for as "scheduledFor"`;
+  expires_at as "expiresAt", callback_at as "callbackAt", completed_at as "completedAt", provider`;
+const ACTION = `id, kind, summary, payload, status, error, created_at as "createdAt", resolved_at as "resolvedAt", scheduled_for as "scheduledFor", connection_id as "connectionId"`;
 
 export interface NativeMailAction extends MailAction { resolvedAt: Date | null; scheduledFor?: Date | null }
 
@@ -58,7 +59,7 @@ export async function unscheduleAction(db: DbClient, userId: string, actionId: s
   return (rowCount ?? 0) > 0;
 }
 
-export interface DueSend { id: string; userId: string; payload: unknown; approvedVersion: string }
+export interface DueSend { id: string; userId: string; payload: unknown; approvedVersion: string; connectionId: string | null }
 
 /** Claims due scheduled sends for this run: each one moves to `processing`, so only one runner sends it. */
 export async function claimDueSends(db: DbClient, limit: number): Promise<DueSend[]> {
@@ -66,19 +67,20 @@ export async function claimDueSends(db: DbClient, limit: number): Promise<DueSen
     `update public.mail_actions set status = 'processing'
      where id in (select id from public.mail_actions where status = 'scheduled' and scheduled_for <= now()
                   order by scheduled_for asc limit $1 for update skip locked)
-     returning id, user_id as "userId", payload, approved_version as "approvedVersion"`,
+     returning id, user_id as "userId", payload, approved_version as "approvedVersion", connection_id as "connectionId"`,
     [limit],
   );
   return rows;
 }
 
 export async function createNativeTransaction(
-  db: DbClient, userId: string, input: { chatbotPublicId: string; stateHash: string; verifierChallenge: string; pkceVerifier: string },
+  db: DbClient, userId: string,
+  input: { chatbotPublicId: string; stateHash: string; verifierChallenge: string; pkceVerifier: string; provider?: "gmail" | "outlook" | "gcal" },
 ): Promise<{ id: string; expiresAt: Date }> {
   const { rows } = await db.query<{ id: string; expiresAt: Date }>(
-    `insert into public.mail_oauth_transactions (user_id, chatbot_public_id, state_hash, verifier_challenge, pkce_verifier, expires_at)
-     values ($1, $6, $2, $3, $4, now() + make_interval(secs => $5)) returning id, expires_at as "expiresAt"`,
-    [userId, input.stateHash, input.verifierChallenge, input.pkceVerifier, NATIVE_TRANSACTION_TTL_SECONDS, input.chatbotPublicId],
+    `insert into public.mail_oauth_transactions (user_id, chatbot_public_id, state_hash, verifier_challenge, pkce_verifier, expires_at, provider)
+     values ($1, $6, $2, $3, $4, now() + make_interval(secs => $5), $7) returning id, expires_at as "expiresAt"`,
+    [userId, input.stateHash, input.verifierChallenge, input.pkceVerifier, NATIVE_TRANSACTION_TTL_SECONDS, input.chatbotPublicId, input.provider ?? "gmail"],
   );
   return rows[0]!;
 }

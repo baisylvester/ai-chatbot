@@ -9,7 +9,8 @@
 import { AIMessage, HumanMessage, SystemMessage, ToolMessage, type BaseMessage } from "@langchain/core/messages";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import { z } from "zod";
-import { LABEL_COLORS, MAX_OUTGOING_ATTACHMENT_BYTES, MAX_OUTGOING_ATTACHMENTS, PART_ID, type AttachmentFile, type MailApi } from "./gmail.ts";
+import type { GoogleCalendar } from "./calendar.ts";
+import { LABEL_COLORS, MAIL_ID, MAX_OUTGOING_ATTACHMENT_BYTES, MAX_OUTGOING_ATTACHMENTS, PART_ID, type AttachmentFile, type MailApi } from "./gmail.ts";
 
 export type ActionKind = "send" | "trash";
 export interface SendPayload { draftId: string; to: string; subject: string; preview: string }
@@ -31,9 +32,11 @@ export interface AgentDeps {
    * cannot be read as text. Supplied by the host, which owns the document parsers.
    */
   extractText?(file: AttachmentFile): Promise<string | null>;
+  /** The user's Google Calendar, when they connected it (opt-in). Adds the calendar tools. */
+  calendar?: Pick<GoogleCalendar, "busy" | "hold">;
 }
 
-const messageId = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).describe("A message id returned by search_mail");
+const messageId = z.string().regex(MAIL_ID).describe("A message id returned by search_mail");
 const MAX_ATTACHMENT_TEXT_CHARS = 8000;
 
 /** Resolves label names (any case) to the user's label ids. Unknown names are reported, never created. */
@@ -235,9 +238,35 @@ const MAX_HISTORY = 20;
 const MAX_TOOL_RESULT_CHARS = 12_000;
 
 /** Runs one user request to completion: the model calls tools until it has an answer (or `maxSteps`). */
+const isoDate = z.string().max(40).describe("ISO 8601 date-time with offset, e.g. 2026-12-01T09:00:00+08:00");
+/** Offered only when the user connected Google Calendar. */
+export const calendarTools: ToolDef[] = [
+  define({
+    name: "calendar_busy",
+    description: "List when the user is busy on their Google Calendar between two times (at most 31 days), to suggest free meeting times.",
+    schema: z.object({ start: isoDate, end: isoDate }),
+    async run({ start, end }, { calendar }) {
+      if (!calendar) throw new Error("Google Calendar is not connected");
+      const busy = await calendar.busy(new Date(start), new Date(end));
+      return { result: { busy }, summary: `Checked the calendar (${busy.length} busy block${busy.length === 1 ? "" : "s"})` };
+    },
+  }),
+  define({
+    name: "hold_calendar_time",
+    description: "Put a hold on the user's own Google Calendar (no attendees: nobody is invited or notified). Only when the user asks to hold or block time. To invite people, draft an email with draft_email.",
+    schema: z.object({ title: z.string().min(1).max(200), start: isoDate, end: isoDate, description: z.string().max(2000).optional() }),
+    async run({ title, start, end, description }, { calendar }) {
+      if (!calendar) throw new Error("Google Calendar is not connected");
+      const event = await calendar.hold({ title, start: new Date(start), end: new Date(end), description });
+      return { result: { held: event.title, start: event.start, end: event.end }, summary: `Held "${event.title}" on the calendar` };
+    },
+  }),
+];
+
 export async function runMailAgent(deps: AgentDeps, history: AgentTurn[], maxSteps = 6): Promise<AgentResult> {
   if (!deps.model.bindTools) throw new Error("This model does not support tool calling");
-  const model = deps.model.bindTools(mailTools.map(({ name, description, schema }) => ({ name, description, schema })));
+  const tools = deps.calendar ? [...mailTools, ...calendarTools] : mailTools;
+  const model = deps.model.bindTools(tools.map(({ name, description, schema }) => ({ name, description, schema })));
   const messages: BaseMessage[] = [
     new SystemMessage(systemPrompt(deps.userEmail, deps.now ?? new Date())),
     ...history.slice(-MAX_HISTORY).map((turn) => (turn.role === "user" ? new HumanMessage(turn.content) : new AIMessage(turn.content))),
@@ -252,7 +281,7 @@ export async function runMailAgent(deps: AgentDeps, history: AgentTurn[], maxSte
     if (!calls.length) return { reply: hideInternalMessageIds(textOf(answer)) || EMPTY_REPLY, steps, queued };
 
     for (const call of calls) {
-      const tool = mailTools.find((item) => item.name === call.name);
+      const tool = tools.find((item) => item.name === call.name);
       let content: string;
       try {
         if (!tool) throw new Error(`Unknown tool ${call.name}`);

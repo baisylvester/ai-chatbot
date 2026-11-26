@@ -6,38 +6,91 @@
 import type { DbClient } from "@chatbot/database";
 import type { ActionKind, SendPayload, TrashPayload } from "./agent.ts";
 
-export interface MailConnection { id: string; userId: string; email: string; refreshTokenEnc: string; status: "active" | "revoked"; notify: boolean; lastCheckedAt: Date | null }
-export interface MailAction { id: string; kind: ActionKind; summary: string; payload: SendPayload | TrashPayload; status: string; error: string | null; createdAt: Date }
+export type MailProvider = "gmail" | "outlook" | "imap";
+/** Non-secret IMAP/SMTP settings; the password itself is encrypted in `refreshTokenEnc`. */
+export interface ImapSettings { imapHost: string; imapPort: number; smtpHost: string; smtpPort: number; username: string }
+export interface MailConnection {
+  id: string; userId: string; provider: MailProvider; email: string; refreshTokenEnc: string; status: "active" | "revoked";
+  notify: boolean; lastCheckedAt: Date | null; selectedAt: Date; settings: ImapSettings | null;
+}
+export interface MailAction { id: string; kind: ActionKind; summary: string; payload: SendPayload | TrashPayload; status: string; error: string | null; createdAt: Date; connectionId?: string | null }
 export interface MailNotification { id: string; title: string; body: string; createdAt: Date }
 
-const CONNECTION = `id, user_id as "userId", email, refresh_token_enc as "refreshTokenEnc", status, notify, last_checked_at as "lastCheckedAt"`;
-const ACTION = `id, kind, summary, payload, status, error, created_at as "createdAt"`;
+const CONNECTION = `id, user_id as "userId", provider, email, refresh_token_enc as "refreshTokenEnc", status, notify,
+  last_checked_at as "lastCheckedAt", selected_at as "selectedAt", settings`;
+const ACTION = `id, kind, summary, payload, status, error, created_at as "createdAt", connection_id as "connectionId"`;
 
-export async function getConnection(db: DbClient, userId: string): Promise<MailConnection | null> {
-  const { rows } = await db.query<MailConnection>(`select ${CONNECTION} from public.mail_connections where user_id = $1`, [userId]);
+/**
+ * One of the user's mailboxes: [connectionId] when given (null if it is not theirs), otherwise the
+ * selected mailbox (the one selected most recently).
+ */
+export async function getConnection(db: DbClient, userId: string, connectionId?: string | null): Promise<MailConnection | null> {
+  const { rows } = connectionId
+    ? await db.query<MailConnection>(`select ${CONNECTION} from public.mail_connections where user_id = $1 and id = $2`, [userId, connectionId])
+    : await db.query<MailConnection>(`select ${CONNECTION} from public.mail_connections where user_id = $1 order by selected_at desc, id limit 1`, [userId]);
   return rows[0] ?? null;
 }
 
-/** One mailbox per user: connecting again replaces the previous one. */
-export async function saveConnection(db: DbClient, userId: string, email: string, refreshTokenEnc: string): Promise<void> {
-  await db.query(
-    `insert into public.mail_connections (user_id, email, refresh_token_enc, last_checked_at) values ($1, $2, $3, now())
-     on conflict (user_id) do update set email = excluded.email, refresh_token_enc = excluded.refresh_token_enc,
-       status = 'active', last_checked_at = now(), updated_at = now()`,
-    [userId, email, refreshTokenEnc],
+/** Every mailbox of the user, the selected one first. */
+export async function listConnections(db: DbClient, userId: string): Promise<MailConnection[]> {
+  const { rows } = await db.query<MailConnection>(`select ${CONNECTION} from public.mail_connections where user_id = $1 order by selected_at desc, id limit 20`, [userId]);
+  return rows;
+}
+
+/** Most mailboxes one user can connect. */
+export const MAX_MAILBOXES = 10;
+
+/**
+ * Adds a mailbox, or refreshes the credentials of the same address with the same provider. The saved
+ * mailbox becomes the selected one. Returns its id, or null when the user already has MAX_MAILBOXES.
+ */
+export async function saveConnection(
+  db: DbClient, userId: string, email: string, refreshTokenEnc: string, provider: MailProvider = "gmail", settings: ImapSettings | null = null,
+): Promise<string | null> {
+  const { rows } = await db.query<{ id: string }>(
+    `insert into public.mail_connections (user_id, provider, email, refresh_token_enc, settings, last_checked_at, selected_at)
+     select $1, $4, $2, $3, $5, now(), now()
+     where (select count(*) from public.mail_connections where user_id = $1) < ${MAX_MAILBOXES}
+        or exists (select 1 from public.mail_connections where user_id = $1 and provider = $4 and lower(email) = lower($2))
+     on conflict (user_id, provider, lower(email)) do update set email = excluded.email, refresh_token_enc = excluded.refresh_token_enc,
+       settings = excluded.settings, status = 'active', last_checked_at = now(), selected_at = now(), updated_at = now()
+     returning id`,
+    [userId, email, refreshTokenEnc, provider, settings ? JSON.stringify(settings) : null],
   );
+  return rows[0]?.id ?? null;
 }
 
-/** Removes the mailbox with everything queued for it. Notifications and push subscriptions go too. */
-export async function deleteConnection(db: DbClient, userId: string): Promise<void> {
-  await db.query("delete from public.mail_actions where user_id = $1", [userId]);
-  await db.query("delete from public.mail_notifications where user_id = $1", [userId]);
-  await db.query("delete from public.push_subscriptions where user_id = $1", [userId]);
-  await db.query("delete from public.mail_connections where user_id = $1", [userId]);
+/** Makes one of the user's mailboxes the selected one. False when it is not theirs. */
+export async function selectConnection(db: DbClient, userId: string, connectionId: string): Promise<boolean> {
+  const { rowCount } = await db.query("update public.mail_connections set selected_at = now() where user_id = $1 and id = $2", [userId, connectionId]);
+  return (rowCount ?? 0) > 0;
 }
 
-export async function markRevoked(db: DbClient, userId: string): Promise<void> {
-  await db.query("update public.mail_connections set status = 'revoked', updated_at = now() where user_id = $1", [userId]);
+/**
+ * Removes one mailbox (or, without [connectionId], every mailbox) with the requests queued for it and
+ * its pins. When no mailbox is left, notifications and push subscriptions go too.
+ */
+export async function deleteConnection(db: DbClient, userId: string, connectionId?: string): Promise<void> {
+  const targets = connectionId ? [connectionId] : (await listConnections(db, userId)).map((c) => c.id);
+  for (const id of targets) {
+    const { rows } = await db.query<{ email: string }>("delete from public.mail_connections where user_id = $1 and id = $2 returning email", [userId, id]);
+    const email = rows[0]?.email;
+    // Pins are kept per address; drop them unless another provider still serves the same address.
+    if (email) await db.query(
+      `delete from public.mail_pins where user_id = $1 and mailbox = lower($2)
+       and not exists (select 1 from public.mail_connections where user_id = $1 and lower(email) = lower($2))`, [userId, email]);
+  }
+  const { rows } = await db.query("select 1 from public.mail_connections where user_id = $1 limit 1", [userId]);
+  if (!rows.length) {
+    await db.query("delete from public.mail_actions where user_id = $1", [userId]);
+    await db.query("delete from public.mail_notifications where user_id = $1", [userId]);
+    await db.query("delete from public.push_subscriptions where user_id = $1", [userId]);
+  }
+}
+
+export async function markRevoked(db: DbClient, userId: string, connectionId?: string): Promise<void> {
+  if (connectionId) await db.query("update public.mail_connections set status = 'revoked', updated_at = now() where user_id = $1 and id = $2", [userId, connectionId]);
+  else await db.query("update public.mail_connections set status = 'revoked', updated_at = now() where user_id = $1", [userId]);
 }
 
 export async function setNotify(db: DbClient, userId: string, notify: boolean): Promise<void> {
@@ -59,8 +112,9 @@ export async function touchChecked(db: DbClient, connectionId: string, at: Date)
   await db.query("update public.mail_connections set last_checked_at = $2 where id = $1", [connectionId, at]);
 }
 
-export async function createAction(db: DbClient, userId: string, kind: ActionKind, summary: string, payload: SendPayload | TrashPayload): Promise<void> {
-  await db.query("insert into public.mail_actions (user_id, kind, summary, payload) values ($1, $2, $3, $4)", [userId, kind, summary.slice(0, 500), JSON.stringify(payload)]);
+export async function createAction(db: DbClient, userId: string, kind: ActionKind, summary: string, payload: SendPayload | TrashPayload, connectionId?: string): Promise<void> {
+  await db.query("insert into public.mail_actions (user_id, kind, summary, payload, connection_id) values ($1, $2, $3, $4, $5)",
+    [userId, kind, summary.slice(0, 500), JSON.stringify(payload), connectionId ?? null]);
 }
 
 export async function listPendingActions(db: DbClient, userId: string): Promise<MailAction[]> {
@@ -179,4 +233,45 @@ export async function addPin(db: DbClient, userId: string, mailbox: string, mess
 export async function removePins(db: DbClient, userId: string, mailbox: string, messageIds: string[]): Promise<void> {
   if (!messageIds.length) return;
   await db.query(`delete from public.mail_pins where user_id = $1 and mailbox = $2 and message_id = any($3::text[])`, [userId, mailbox.toLowerCase(), messageIds]);
+}
+
+export interface CalendarConnection { userId: string; email: string; refreshTokenEnc: string }
+export async function getCalendar(db: DbClient, userId: string): Promise<CalendarConnection | null> {
+  const { rows } = await db.query<CalendarConnection>(`select user_id as "userId", email, refresh_token_enc as "refreshTokenEnc" from public.calendar_connections where user_id = $1`, [userId]);
+  return rows[0] ?? null;
+}
+export async function saveCalendar(db: DbClient, userId: string, email: string, refreshTokenEnc: string): Promise<void> {
+  await db.query(
+    `insert into public.calendar_connections (user_id, email, refresh_token_enc) values ($1, $2, $3)
+     on conflict (user_id) do update set email = excluded.email, refresh_token_enc = excluded.refresh_token_enc, updated_at = now()`, [userId, email, refreshTokenEnc]);
+}
+export async function deleteCalendar(db: DbClient, userId: string): Promise<void> {
+  await db.query("delete from public.calendar_connections where user_id = $1", [userId]);
+}
+
+/** Replaces a mailbox's sealed secret (Microsoft rotates refresh tokens on use). */
+export async function updateConnectionSecret(db: DbClient, userId: string, connectionId: string, refreshTokenEnc: string): Promise<void> {
+  await db.query("update public.mail_connections set refresh_token_enc = $3, updated_at = now() where user_id = $1 and id = $2", [userId, connectionId, refreshTokenEnc]);
+}
+
+/** Most phones one user can register for push. Older tokens are dropped first. */
+const MAX_FCM_TOKENS = 10;
+export async function saveFcmToken(db: DbClient, userId: string, token: string, platform: "android" | "ios" = "android"): Promise<void> {
+  // A token moves to the account now signed in on that phone.
+  await db.query(
+    `insert into public.fcm_tokens (token, user_id, platform) values ($1, $2, $3)
+     on conflict (token) do update set user_id = excluded.user_id, platform = excluded.platform, updated_at = now()`, [token, userId, platform]);
+  await db.query(
+    `delete from public.fcm_tokens where user_id = $1 and token not in
+       (select token from public.fcm_tokens where user_id = $1 order by updated_at desc limit ${MAX_FCM_TOKENS})`, [userId]);
+}
+export async function deleteFcmToken(db: DbClient, userId: string, token: string): Promise<void> {
+  await db.query("delete from public.fcm_tokens where user_id = $1 and token = $2", [userId, token]);
+}
+export async function dropFcmToken(db: DbClient, token: string): Promise<void> {
+  await db.query("delete from public.fcm_tokens where token = $1", [token]);
+}
+export async function listFcmTokens(db: DbClient, userId: string): Promise<string[]> {
+  const { rows } = await db.query<{ token: string }>("select token from public.fcm_tokens where user_id = $1", [userId]);
+  return rows.map((row) => row.token);
 }

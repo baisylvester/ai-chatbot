@@ -7,7 +7,8 @@ import { withTrustedContext, type DbClient } from "@chatbot/database";
 import {
   addNotification, buildDigest, createAction, decryptSecret, deletePushSubscription, describeActionState, dueConnections, getConnection,
   GmailClient, listPushEndpoints, listRecentActions, MailAuthError, markRevoked, refreshAccessToken, runMailAgent, sendPush, touchChecked,
-  readAttachmentText, type AttachmentFile, type GoogleOAuthConfig, type MailConnection, type VapidKeys,
+  readAttachmentText, updateConnectionSecret, fcmServiceAccount, sendFcm, listFcmTokens, dropFcmToken, type FcmServiceAccount, OutlookClient, refreshOutlookToken, ImapClient, encryptSecret, getCalendar, GoogleCalendar,
+  type AttachmentFile, type GoogleOAuthConfig, type MailboxClient, type MailConnection, type MicrosoftOAuthConfig, type VapidKeys,
 } from "@chatbot/mail-agent";
 import { providerSchema, type Provider } from "@chatbot/shared";
 import { getPool } from "@/lib/db";
@@ -19,11 +20,17 @@ export const DEFAULT_AGENT_MODEL = "gemini-flash-latest";
 
 export interface MailSetup {
   oauth: GoogleOAuthConfig | null;
+  /** Outlook / Microsoft 365 sign-in; null until MICROSOFT_OAUTH_CLIENT_ID and _SECRET are set. */
+  microsoft: MicrosoftOAuthConfig | null;
+  /** IMAP accounts need only the token secret (passwords are encrypted with it) and outgoing sockets. */
+  imapReady: boolean;
   tokenSecret: string | null;
   provider: Provider;
   model: string;
   modelReady: boolean;
   vapid: VapidKeys | null;
+  /** Firebase service account for native push; null until FCM_SERVICE_ACCOUNT_JSON is set. */
+  fcm: FcmServiceAccount | null;
   /** Names (never values) of the variables still needed before a mailbox can be connected and used. */
   missing: string[];
 }
@@ -36,14 +43,21 @@ export function mailSetup(): MailSetup {
   const tokenSecret = env.MAIL_TOKEN_SECRET && env.MAIL_TOKEN_SECRET.length >= 32 ? env.MAIL_TOKEN_SECRET : null;
   const provider = providerSchema.catch("gemini").parse(env.MAIL_AGENT_PROVIDER?.trim() || "gemini");
   const modelReady = isProviderConfigured(provider, env);
+  const msId = env.MICROSOFT_OAUTH_CLIENT_ID?.trim();
+  const msSecret = env.MICROSOFT_OAUTH_CLIENT_SECRET?.trim();
   const publicKey = env.VAPID_PUBLIC_KEY?.trim();
   const privateKey = env.VAPID_PRIVATE_KEY?.trim();
   return {
     oauth: clientId && clientSecret && platform ? { clientId, clientSecret, redirectUri: `${platform}/api/agent/gmail/callback` } : null,
+    microsoft: msId && msSecret && platform
+      ? { clientId: msId, clientSecret: msSecret, tenant: env.MICROSOFT_OAUTH_TENANT?.trim() || "common", redirectUri: `${platform}/api/agent/outlook/callback` }
+      : null,
+    imapReady: !!tokenSecret && env.MAIL_IMAP_ENABLED?.trim() !== "false",
     tokenSecret,
     provider,
     model: env.MAIL_AGENT_MODEL?.trim() || DEFAULT_AGENT_MODEL,
     modelReady,
+    fcm: fcmServiceAccount(env.FCM_SERVICE_ACCOUNT_JSON),
     vapid: publicKey && privateKey ? { publicKey, privateKey, subject: env.VAPID_SUBJECT?.trim() || platform } : null,
     missing: [
       ...(clientId ? [] : ["GOOGLE_OAUTH_CLIENT_ID"]),
@@ -69,27 +83,67 @@ export const mailDb = <T>(fn: (db: DbClient) => Promise<T>) => withTrustedContex
  */
 const GMAIL_CALLS_PER_REQUEST = 30;
 
-/** Opens the user's mailbox with a fresh access token, or explains why it can't. */
-export async function openMailbox(userId: string): Promise<{ connection: MailConnection; gmail: GmailClient }> {
-  const { oauth, tokenSecret } = mailSetup();
-  if (!oauth || !tokenSecret) throw new DomainError("invalid", "Gmail is not set up on this server yet.");
-  const connection = await mailDb((db) => getConnection(db, userId));
-  if (!connection) throw new DomainError("not_found", "Connect Gmail first.");
-  if (connection.status !== "active") throw new DomainError("forbidden", "Gmail access has expired or was revoked. Connect Gmail again.");
-  let refreshToken: string;
+const PROVIDER_NAME = { gmail: "Gmail", outlook: "Outlook", imap: "This mailbox" } as const;
+
+/**
+ * Opens one of the user's mailboxes (the selected one without [connectionId]) with fresh credentials,
+ * or explains why it can't. Gmail and Outlook refresh an OAuth token; IMAP decrypts the app password.
+ */
+export async function openMailbox(userId: string, connectionId?: string | null): Promise<{ connection: MailConnection; gmail: MailboxClient }> {
+  const setup = mailSetup();
+  if (!setup.tokenSecret) throw new DomainError("invalid", "Mail is not set up on this server yet.");
+  const connection = await mailDb((db) => getConnection(db, userId, connectionId));
+  if (!connection) throw new DomainError("not_found", connectionId ? "This mailbox is no longer connected." : "Connect a mailbox first.");
+  const name = PROVIDER_NAME[connection.provider] ?? "This mailbox";
+  if (connection.status !== "active") throw new DomainError("forbidden", `${name} access has expired or was revoked. Connect ${connection.email} again.`);
+  let secret: string;
   try {
-    refreshToken = await decryptSecret(connection.refreshTokenEnc, tokenSecret);
+    secret = await decryptSecret(connection.refreshTokenEnc, setup.tokenSecret);
   } catch {
-    // MAIL_TOKEN_SECRET changed: the stored token can never be read again.
-    await mailDb((db) => markRevoked(db, userId));
-    throw new DomainError("forbidden", "Gmail has to be connected again.");
+    // MAIL_TOKEN_SECRET changed: the stored secret can never be read again.
+    await mailDb((db) => markRevoked(db, userId, connection.id));
+    throw new DomainError("forbidden", `${connection.email} has to be connected again.`);
   }
   try {
-    return { connection, gmail: new GmailClient(await refreshAccessToken(oauth, refreshToken), fetch, GMAIL_CALLS_PER_REQUEST) };
+    switch (connection.provider) {
+      case "gmail": {
+        if (!setup.oauth) throw new DomainError("invalid", "Gmail is not set up on this server yet.");
+        return { connection, gmail: new GmailClient(await refreshAccessToken(setup.oauth, secret), fetch, GMAIL_CALLS_PER_REQUEST) };
+      }
+      case "outlook": {
+        if (!setup.microsoft) throw new DomainError("invalid", "Outlook is not set up on this server yet.");
+        const tokens = await refreshOutlookToken(setup.microsoft, secret);
+        // Microsoft may rotate the refresh token; keep the newest one.
+        if (tokens.refreshToken && tokens.refreshToken !== secret) {
+          const sealed = await encryptSecret(tokens.refreshToken, setup.tokenSecret);
+          await mailDb((db) => updateConnectionSecret(db, userId, connection.id, sealed));
+        }
+        return { connection, gmail: new OutlookClient(tokens.accessToken, fetch, GMAIL_CALLS_PER_REQUEST) };
+      }
+      case "imap": {
+        if (!setup.imapReady || !connection.settings) throw new DomainError("invalid", "IMAP accounts are not available on this server.");
+        return { connection, gmail: new ImapClient(connection.settings, connection.email, secret) };
+      }
+    }
   } catch (err) {
     if (!(err instanceof MailAuthError)) throw err;
-    await mailDb((db) => markRevoked(db, userId));
+    await mailDb((db) => markRevoked(db, userId, connection.id));
     throw new DomainError("forbidden", err.message);
+  }
+}
+
+/** The user's Google Calendar when they connected it; null otherwise or when its access ended. */
+export async function openCalendar(userId: string): Promise<GoogleCalendar | null> {
+  const { oauth, tokenSecret } = mailSetup();
+  if (!oauth || !tokenSecret) return null;
+  const connection = await mailDb((db) => getCalendar(db, userId));
+  if (!connection) return null;
+  try {
+    return new GoogleCalendar(await refreshAccessToken(oauth, await decryptSecret(connection.refreshTokenEnc, tokenSecret)));
+  } catch (err) {
+    // A calendar problem never blocks mail: the assistant just works without calendar tools.
+    log.warn("calendar.open_failed", { error: err });
+    return null;
   }
 }
 
@@ -115,12 +169,12 @@ const CHECKS_PER_RUN = 3;
 export async function runMailChecks(): Promise<{ mailboxesChecked: number; notificationsSent: number }> {
   const setup = mailSetup();
   const result = { mailboxesChecked: 0, notificationsSent: 0 };
-  if (!setup.oauth || !setup.tokenSecret) return result;
+  if (!setup.tokenSecret) return result;
   const model = setup.modelReady ? agentModel(1024) : null;
   for (const connection of await mailDb((db) => dueConnections(db, CHECKS_PER_RUN))) {
     const startedAt = new Date();
     try {
-      const { gmail } = await openMailbox(connection.userId);
+      const { gmail } = await openMailbox(connection.userId, connection.id);
       const since = Math.floor((connection.lastCheckedAt ?? new Date(startedAt.getTime() - 10 * 60_000)).getTime() / 1000);
       const mails = await gmail.search(`in:inbox is:unread after:${since}`, 5);
       await mailDb((db) => touchChecked(db, connection.id, startedAt));
@@ -132,6 +186,13 @@ export async function runMailChecks(): Promise<{ mailboxesChecked: number; notif
         return listPushEndpoints(db, connection.userId);
       });
       result.notificationsSent++;
+      if (setup.fcm) {
+        for (const token of await mailDb((db) => listFcmTokens(db, connection.userId))) {
+          const sent = await sendFcm(setup.fcm, token, { title: digest.title, body: digest.body, data: { type: "new_mail", mailbox: connection.email } })
+            .catch((error) => { log.warn("push.fcm_failed", { error }); return "failed" as const; });
+          if (sent === "gone") await mailDb((db) => dropFcmToken(db, token));
+        }
+      }
       if (!setup.vapid) continue;
       for (const endpoint of endpoints) {
         if ((await sendPush(endpoint, setup.vapid)) === "gone") await mailDb((db) => deletePushSubscription(db, endpoint));
@@ -167,7 +228,7 @@ export function emailManagerTool(userId: string): EngineTool {
   return {
     name: "email_manager",
     description:
-      "Works in the signed-in user's own Gmail mailbox: search, read and summarize mail and document attachments, star, archive, mark read or unread, add or remove labels, draft emails and replies (plain or formatted), and ask to move mail to Trash. " +
+      "Works in the signed-in user's own selected mailbox (Gmail, Outlook or IMAP): search, read and summarize mail and document attachments, star, archive, mark read or unread, add or remove labels, draft emails and replies (plain or formatted), and ask to move mail to Trash. " +
       "Pass the whole request in plain words, with any details from earlier in the conversation, because the email manager does not see this chat. " +
       "It never sends or deletes on its own: drafts and trash requests wait for the user's approval on the Assistant page.",
     schema: emailRequestSchema,
@@ -178,12 +239,14 @@ export function emailManagerTool(userId: string): EngineTool {
         const limit = await rateLimit(`agent:${userId}`, 20, 60_000);
         if (!limit.ok) return { content: JSON.stringify({ error: `Too many mailbox requests. Try again in ${limit.retryAfterSec} seconds.` }) };
         const { connection, gmail } = await openMailbox(userId);
+        const calendar = await openCalendar(userId);
         const result = await runMailAgent({
+          ...(calendar ? { calendar } : {}),
           model: agentModel(4096),
           mail: gmail,
           userEmail: connection.email,
           extractText: attachmentPlainText,
-          queueAction: (kind, summary, payload) => mailDb((db) => createAction(db, userId, kind, summary, payload)),
+          queueAction: (kind, summary, payload) => mailDb((db) => createAction(db, userId, kind, summary, payload, connection.id)),
         }, [{ role: "user", content: parsed.data.request }]);
         log.info("agent.tool_completed", { tools: result.steps.map(step => step.tool), queued: result.queued });
         // The chatbot cannot see the approval buttons, so it is told what the user did with each request.

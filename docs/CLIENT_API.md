@@ -243,6 +243,22 @@ Added November 25, 2026. **Release prerequisite:** apply `packages/database/migr
 
 The agent's `draft_email` tool accepts `attachFrom: [{ messageId, partId }]`: files already in the mailbox are copied server side into the draft (10 files / 10 MB), and the draft still needs approval to send.
 
+### Several mailboxes, Outlook, IMAP, Calendar and FCM
+
+A user can connect up to 10 mailboxes (Gmail, Outlook / Microsoft 365, IMAP). One is **selected** (the newest `selected_at`): the inbox, the assistant and requests without `mailboxId` use it. Every mail route accepts an optional `mailboxId` query parameter; approval requests remember the mailbox they were drafted in and are sent or trashed only there.
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/mail/status` | Adds `mailboxes: [{ id, provider, email, status, selected }]`, `providers: { gmail, outlook, imap, calendar }` and `calendar: { email } \| null`; `connection` is the selected mailbox |
+| `POST` | `/mail/connect` | `provider`: `gmail` (default), `outlook` or `gcal` (Google Calendar). Same single-use PKCE transaction and `/mail/connect/complete` |
+| `POST` | `/mail/connect/imap` | `{ chatbotId, email, password, imapHost?, smtpHost?, smtpPort?, username? }`. Presets for Yahoo, iCloud, AOL, Zoho, Fastmail, GMX. The server signs in once (IMAP 993, SMTP 465/587 only, public host names only) before storing the password encrypted |
+| `POST` | `/mail/connection/select` | `{ mailboxId }` |
+| `DELETE` | `/mail/connection?mailboxId=…` | Disconnects one mailbox (the selected one without `mailboxId`) with its approval requests and pins |
+| `DELETE` | `/mail/calendar` | Disconnects Google Calendar |
+| `POST` / `DELETE` | `/push/fcm` | `{ token, platform? }`: this phone's Firebase token. 503 `push_not_configured` until `FCM_SERVICE_ACCOUNT_JSON` is set |
+
+Outlook maps folders to Outlook's well-known folders, labels to categories (they cannot be renamed) and star to a follow-up flag; ids are immutable Graph ids without their `=` padding. IMAP has folders only (no labels); message ids are `<base64url folder>-<uid>`; an approved draft is sent over SMTP and filed in Sent. With Calendar connected the agent gets `calendar_busy` and `hold_calendar_time` (holds have no attendees; invitations stay email drafts that need approval).
+
 ### Native push
 
 Not implemented. Existing new-mail notifications use browser Web Push (VAPID); there is no FCM sender or device-token storage. Native apps should refresh `/status` and `/actions` in the foreground.

@@ -30,13 +30,13 @@ export class GmailHttpError extends Error {
 }
 
 /** `codeChallenge` (S256) adds PKCE for the native flow; the web flow omits it and is unchanged. */
-export function googleAuthUrl(config: GoogleOAuthConfig, state: string, codeChallenge?: string): string {
+export function googleAuthUrl(config: GoogleOAuthConfig, state: string, codeChallenge?: string, scope = GMAIL_SCOPE): string {
   const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
   url.search = new URLSearchParams({
     client_id: config.clientId,
     redirect_uri: config.redirectUri,
     response_type: "code",
-    scope: GMAIL_SCOPE,
+    scope,
     // offline + consent: Google only returns a refresh token on a fresh consent.
     access_type: "offline",
     prompt: "consent",
@@ -60,14 +60,16 @@ async function tokenRequest(params: Record<string, string>, fetchFn: FetchFn) {
   return data;
 }
 
-export async function exchangeCode(config: GoogleOAuthConfig, code: string, fetchFn: FetchFn = fetch, codeVerifier?: string) {
+export async function exchangeCode(config: GoogleOAuthConfig, code: string, fetchFn: FetchFn = fetch, codeVerifier?: string, requiredScope = GMAIL_SCOPE) {
   const data = await tokenRequest({
     code, client_id: config.clientId, client_secret: config.clientSecret,
     redirect_uri: config.redirectUri, grant_type: "authorization_code",
     ...(codeVerifier ? { code_verifier: codeVerifier } : {}),
   }, fetchFn);
   const scope = String(data.scope ?? "");
-  if (!scope.split(" ").includes(GMAIL_SCOPE)) throw new MailAuthError("Gmail permission was not granted. Tick the Gmail box on Google's consent screen.");
+  if (!scope.split(" ").includes(requiredScope)) {
+    throw new MailAuthError(requiredScope === GMAIL_SCOPE ? "Gmail permission was not granted. Tick the Gmail box on Google's consent screen." : "Calendar permission was not granted. Tick the Calendar box on Google's consent screen.");
+  }
   if (typeof data.refresh_token !== "string" || typeof data.access_token !== "string") throw new MailAuthError("Google did not return a long-lived token. Try connecting again.");
   return { refreshToken: data.refresh_token, accessToken: data.access_token, scope };
 }
@@ -132,7 +134,9 @@ interface Part { partId?: string; mimeType?: string; filename?: string; body?: {
 interface RawMessage { id: string; threadId: string; snippet?: string; labelIds?: string[]; payload?: Part }
 
 const MAX_BODY_CHARS = 6000;
-const ID = /^[A-Za-z0-9_-]{1,64}$/;
+/** Message, draft and thread ids of every provider: URL-safe characters only (Outlook ids are long). */
+export const MAIL_ID = /^[A-Za-z0-9_-]{1,200}$/;
+const ID = MAIL_ID;
 const ADDRESS = /^[^\s@<>,;"]+@[^\s@<>,;"]+\.[^\s@<>,;"]+$/;
 
 const header = (message: RawMessage, name: string) =>
@@ -424,6 +428,14 @@ const LABEL_CHANGES: Record<OrganizeAction, { addLabelIds?: string[]; removeLabe
   star: { addLabelIds: ["STARRED"] },
   unstar: { removeLabelIds: ["STARRED"] },
 };
+
+/**
+ * Everything the app and the agent do with a mailbox. Gmail, Outlook (Microsoft Graph) and IMAP clients
+ * all implement it; queries use Gmail's search syntax, which the other providers translate (a subset).
+ */
+export type MailboxClient = Pick<GmailClient,
+  "profile" | "search" | "listPage" | "contacts" | "pinnedSummaries" | "read" | "labels" | "createLabel" | "updateLabel" | "deleteLabel" |
+  "relabel" | "attachment" | "createDraft" | "getDraft" | "summaries" | "sendDraft" | "organize" | "trash">;
 
 export class GmailClient implements MailApi {
   private readonly accessToken: string;

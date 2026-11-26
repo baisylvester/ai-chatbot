@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { DomainError } from "@chatbot/core";
 import {
-  AttachmentReadError, cleanRecipients, decodeAttachments, GmailHttpError, MAX_OUTGOING_ATTACHMENTS, PART_ID, USER_LABEL_ID,
+  AttachmentReadError, cleanRecipients, decodeAttachments, GmailHttpError, MAIL_ID, MAX_OUTGOING_ATTACHMENTS, PART_ID, USER_LABEL_ID,
   type AttachmentFile, type DraftInput, type OrganizeAction,
 } from "@chatbot/mail-agent";
 import { clientBot, clientError, withClientRequest } from "@/lib/client-api";
@@ -29,7 +29,7 @@ export function mailboxQuery(folder: keyof typeof folders, query: string): strin
   // Group the user's expression so OR cannot escape the selected folder.
   return `${folders[folder]}${query ? ` (${query})` : ""}`;
 }
-const idSchema = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
+const idSchema = z.string().regex(MAIL_ID);
 const modifySchema = z.object({ ids: z.array(idSchema).min(1).max(25), action: z.enum(["archive", "move_to_inbox", "mark_read", "mark_unread", "star", "unstar", "mark_spam", "trash"]), requestId: z.uuid() }).strict();
 const outgoingAttachment = z.object({
   filename: z.string().min(1).max(255), mimeType: z.string().min(3).max(255), data: z.string().min(1).max(14_000_000),
@@ -57,16 +57,24 @@ export const writingSchema = z.object({
   length: z.enum(["Short", "Medium", "Long"]).default("Medium"), language: z.string().trim().min(2).max(60).default("English"),
 }).strict();
 
+const MAILBOX_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** The `mailboxId` query parameter: one of the caller's mailboxes, or the selected one when absent. */
+export function requestedMailbox(request: Request): string | null {
+  const id = new URL(request.url).searchParams.get("mailboxId");
+  if (id && !MAILBOX_ID.test(id)) throw new DomainError("not_found", "This mailbox is no longer connected.", "mailbox_not_connected");
+  return id || null;
+}
 async function authorizedMailbox(request: Request, userId: string) {
-  const bot = await clientBot(request, new URL(request.url).searchParams.get("chatbotId") ?? "", false, userId);
+  const params = new URL(request.url).searchParams;
+  const bot = await clientBot(request, params.get("chatbotId") ?? "", false, userId);
   const role = await mailRole(userId, bot);
   if (role !== "owner" && role !== "admin") throw new DomainError("forbidden", "This account cannot manage this mailbox.", "mail_role_required");
-  return openMailbox(userId);
+  return openMailbox(userId, requestedMailbox(request));
 }
 
 export function listMailbox(request: Request) {
   return withClientRequest(request, async user => {
-    const input = listSchema.safeParse(Object.fromEntries([...new URL(request.url).searchParams].filter(([k]) => k !== "chatbotId")));
+    const input = listSchema.safeParse(Object.fromEntries([...new URL(request.url).searchParams].filter(([k]) => k !== "chatbotId" && k !== "mailboxId")));
     if (!input.success) return clientError(400, "invalid", "Choose a valid folder and search.");
     const { gmail } = await authorizedMailbox(request, user.id);
     return Response.json(await gmail.listPage(mailboxQuery(input.data.folder, input.data.query), input.data.cursor, input.data.labelId));
@@ -218,15 +226,15 @@ export function modifyMailbox(request: Request) {
   return withClientRequest(request, async user => {
     const input = modifySchema.safeParse(await request.json().catch(() => null));
     if (!input.success) return clientError(400, "invalid", "Choose valid messages and an action.");
-    const { gmail } = await authorizedMailbox(request, user.id);
+    const { gmail, connection } = await authorizedMailbox(request, user.id);
     if (input.data.action === "trash") {
       const fingerprint = createHash("sha256").update(JSON.stringify({ kind: "trash", ids: [...input.data.ids].sort() })).digest("hex");
       const claim = await claimDraft(user.id, input.data.requestId, fingerprint);
       if (!claim.fresh) return "unavailable" in claim ? draftStorageUnavailable() : Response.json(claim.result);
       const receipt = await mailDb(async db => {
         const { rows } = await db.query<{ id: string }>(
-        "insert into public.mail_actions (user_id,kind,summary,payload) values ($1,'trash',$2,$3) returning id",
-        [user.id, `Move ${input.data.ids.length} message(s) to Trash`, JSON.stringify({ ids: input.data.ids })],
+        "insert into public.mail_actions (user_id,kind,summary,payload,connection_id) values ($1,'trash',$2,$3,$4) returning id",
+        [user.id, `Move ${input.data.ids.length} message(s) to Trash`, JSON.stringify({ ids: input.data.ids }), connection.id],
         );
         const result = { actionId: rows[0]!.id, waitingForApproval: true };
         await db.query("update public.mail_draft_requests set status='completed',result=$3 where user_id=$1 and request_id=$2", [user.id,input.data.requestId,JSON.stringify(result)]);
@@ -271,7 +279,7 @@ export function saveMailboxDraft(request: Request) {
     // Refuse bad files before claiming the request id, so the user can fix them and retry.
     try { decodeAttachments(input.attachments); }
     catch (err) { return clientError(400, "invalid", err instanceof Error ? err.message : "An attachment could not be read.", "attachment_invalid"); }
-    const { gmail } = await authorizedMailbox(request, user.id);
+    const { gmail, connection } = await authorizedMailbox(request, user.id);
     // Plain drafts without files hash exactly as before formatting and attachments existed.
     const { format, attachments, ...base } = input;
     const fingerprint = createHash("sha256").update(JSON.stringify(format === "plain" && !attachments?.length ? base : input)).digest("hex");
@@ -280,7 +288,7 @@ export function saveMailboxDraft(request: Request) {
     try {
       const draft = await gmail.createDraft(input as DraftInput);
       const result = await mailDb(async db => {
-        const { rows } = await db.query<{ id: string }>("insert into public.mail_actions(user_id,kind,summary,payload) values($1,'send',$2,$3) returning id", [user.id, `Send "${draft.subject}" to ${draft.to}`.slice(0,500), JSON.stringify({ ...draft, preview: input.body.slice(0,2000) })]);
+        const { rows } = await db.query<{ id: string }>("insert into public.mail_actions(user_id,kind,summary,payload,connection_id) values($1,'send',$2,$3,$4) returning id", [user.id, `Send "${draft.subject}" to ${draft.to}`.slice(0,500), JSON.stringify({ ...draft, preview: input.body.slice(0,2000) }), connection.id]);
         const receipt = { draftId: draft.draftId, actionId: rows[0]!.id, to: draft.to, subject: draft.subject };
         await db.query("update public.mail_draft_requests set status='completed',result=$3 where user_id=$1 and request_id=$2", [user.id, requestId, JSON.stringify(receipt)]);
         return receipt;

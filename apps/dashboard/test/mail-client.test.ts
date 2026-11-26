@@ -22,7 +22,7 @@ const draft = { requestId, to: "ana@example.test", subject: "Status", body: "Hel
 beforeEach(() => {
   vi.resetAllMocks(); m.role.mockResolvedValue("owner"); m.bot.mockResolvedValue({id:"bot"});
   m.shared.mockResolvedValue(null); m.retrieve.mockResolvedValue([]);
-  m.open.mockResolvedValue({ gmail: { createDraft: m.draft, organize: m.modify, listPage: m.list, read: m.read } });
+  m.open.mockResolvedValue({ connection: { id: "conn-1", email: "me@example.com" }, gmail: { createDraft: m.draft, organize: m.modify, listPage: m.list, read: m.read } });
   m.query.mockResolvedValue({ rowCount: 1, rows: [{ id: "action-one" }] });
   m.draft.mockResolvedValue({ draftId: "draft-one", to: draft.to, subject: draft.subject });
 });
@@ -38,7 +38,7 @@ describe("mail client boundaries", () => {
   it("passes cursor and scope to the mailbox of the authenticated user", async () => {
     m.list.mockResolvedValue({messages:[],nextCursor:"next"});
     await listMailbox(new Request("https://platform.test/mail?chatbotId=cb_test&folder=sent&query=invoice&cursor=page"));
-    expect(m.open).toHaveBeenCalledWith("user-one");
+    expect(m.open).toHaveBeenCalledWith("user-one", null);
     expect(m.list).toHaveBeenCalledWith("in:sent (invoice)", "page", undefined);
   });
   it("rejects invalid recipients before claiming or creating a draft", async () => {
