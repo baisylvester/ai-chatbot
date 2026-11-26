@@ -117,6 +117,14 @@ export interface MailApi {
   /** Adds and removes user labels only; system labels (INBOX, TRASH, SPAM…) are refused. */
   relabel(ids: string[], add: string[], remove: string[]): Promise<void>;
   createLabel(name: string): Promise<MailLabel>;
+  /** People from the user's recent mail, most frequent first. */
+  contacts(self: string): Promise<MailContact[]>;
+  /** Summaries for known ids (pinned messages); deleted messages are left out. */
+  pinnedSummaries(ids: string[]): Promise<MailSummary[]>;
+  /** Renames or recolors one of the user's own labels. */
+  updateLabel(id: string, change: { name?: string; color?: string | null }): Promise<MailLabel>;
+  /** Deletes one of the user's own labels; the messages themselves are kept. */
+  deleteLabel(id: string): Promise<void>;
   attachment(messageId: string, partId: string): Promise<AttachmentFile>;
 }
 
@@ -208,6 +216,12 @@ function summarize(message: RawMessage): MailSummary {
   };
 }
 
+/** Background colors Gmail accepts for labels, each with its readable text color. */
+export const LABEL_COLORS: Record<string, string> = {
+  "#fb4c2f": "#ffffff", "#ffad47": "#ffffff", "#fad165": "#000000", "#16a766": "#ffffff", "#43d692": "#ffffff",
+  "#4a86e8": "#ffffff", "#2da2bb": "#ffffff", "#a479e2": "#ffffff", "#f691b3": "#ffffff", "#666666": "#ffffff",
+};
+
 /** A label name Gmail will accept and that cannot smuggle control characters. */
 export function cleanLabelName(name: string): string {
   const value = name.replace(/[\u0000-\u001f\u007f]/g, "").trim();
@@ -220,7 +234,18 @@ export function cleanLabelName(name: string): string {
 export const CALL_LIMIT_MESSAGE = "This request has used all the mailbox lookups allowed for one question. Answer with what you already have and tell the user to ask again for the rest.";
 
 const BATCH_URL = "https://gmail.googleapis.com/batch/gmail/v1";
-const METADATA_QUERY = "format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date";
+const METADATA_QUERY = "format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Subject&metadataHeaders=Date";
+
+export interface MailContact { name: string; email: string }
+/** Every "Name <address>" or bare address in an address header. */
+export function parseAddresses(value: string): MailContact[] {
+  const out: MailContact[] = [];
+  for (const match of value.matchAll(/(?:"?([^"<>,]*?)"?\s*<([^<>\s]+@[^<>\s]+)>)|([^\s<>,;"]+@[^\s<>,;"]+)/g)) {
+    const email = (match[2] ?? match[3] ?? "").trim().toLowerCase();
+    if (ADDRESS.test(email)) out.push({ name: (match[1] ?? "").trim().slice(0, 100), email });
+  }
+  return out;
+}
 
 /** One multipart body asking for the metadata of every id. Gmail answers all of them in a single response. */
 export function buildBatchBody(ids: string[], boundary: string): string {
@@ -471,6 +496,47 @@ export class GmailClient implements MailApi {
     return { messages: ids.flatMap(id => { const m = found.get(id); return m ? [summarize(m)] : []; }), nextCursor: page.nextPageToken ?? null };
   }
 
+  /**
+   * People in the user's recent mail (up to 100 messages from the last year in Sent and Inbox), most
+   * frequent first; people the user wrote to count double. The app filters this list as the user types.
+   */
+  async contacts(self: string): Promise<MailContact[]> {
+    const params = new URLSearchParams({ q: "newer_than:1y (in:sent OR in:inbox) -in:spam -in:trash", maxResults: "100" });
+    const page = await this.call<{ messages?: { id: string }[] }>(`/messages?${params}`);
+    const ids = (page.messages ?? []).map((m) => m.id).filter((id) => ID.test(id));
+    if (!ids.length) return [];
+    const found = await this.batchMetadata(ids);
+    const me = self.toLowerCase();
+    const score = new Map<string, { contact: MailContact; weight: number }>();
+    for (const message of found.values()) {
+      const sent = parseAddresses(header(message, "From")).some((c) => c.email === me);
+      const people = sent ? ["To", "Cc"].flatMap((name) => parseAddresses(header(message, name))) : parseAddresses(header(message, "From"));
+      for (const contact of people) {
+        if (contact.email === me || /^(no-?reply|do-?not-?reply|mailer-daemon)@/i.test(contact.email)) continue;
+        const entry = score.get(contact.email) ?? { contact, weight: 0 };
+        if (!entry.contact.name && contact.name) entry.contact = contact;
+        entry.weight += sent ? 2 : 1;
+        score.set(contact.email, entry);
+      }
+    }
+    return [...score.values()].sort((a, b) => b.weight - a.weight).slice(0, 300).map((entry) => entry.contact);
+  }
+
+  /** Summaries for known message ids, in the given order. Messages that no longer exist are left out. */
+  async pinnedSummaries(ids: string[]): Promise<MailSummary[]> {
+    const valid = ids.filter((id) => ID.test(id)).slice(0, 50);
+    if (!valid.length) return [];
+    let found: Map<string, RawMessage>;
+    try { found = await this.batchMetadata(valid); } catch (err) {
+      // Every pinned message deleted looks like an all-failed batch; one plain read tells the two apart.
+      if (err instanceof Error && err.message.startsWith("Gmail could not load")) {
+        try { await this.call(`/messages/${valid[0]}?format=minimal`); } catch (inner) { if (inner instanceof GmailHttpError && inner.status === 404) return []; }
+      }
+      throw err;
+    }
+    return valid.flatMap((id) => { const message = found.get(id); return message ? [summarize(message)] : []; });
+  }
+
   private async batchMetadata(ids: string[]): Promise<Map<string, RawMessage>> {
     this.spend();
     const boundary = `batch_${crypto.randomUUID()}`;
@@ -511,6 +577,27 @@ export class GmailClient implements MailApi {
       method: "POST", body: { name: cleanLabelName(name), labelListVisibility: "labelShow", messageListVisibility: "show" },
     });
     return { id: label.id, name: label.name, color: null };
+  }
+
+  async updateLabel(id: string, change: { name?: string; color?: string | null }): Promise<MailLabel> {
+    if (!USER_LABEL_ID.test(id)) throw new Error("Only your own labels can be changed");
+    const body: Record<string, unknown> = {};
+    if (change.name !== undefined) body.name = cleanLabelName(change.name);
+    if (change.color !== undefined) {
+      const color = change.color?.toLowerCase() ?? null;
+      if (color !== null && !LABEL_COLORS[color]) throw new Error("Choose one of the available label colors");
+      // Gmail removes a color when both values are absent from an explicit color object.
+      body.color = color ? { backgroundColor: color, textColor: LABEL_COLORS[color] } : { backgroundColor: null, textColor: null };
+    }
+    if (!Object.keys(body).length) throw new Error("Nothing to change");
+    const label = await this.call<{ id: string; name: string; color?: { backgroundColor?: string } }>(`/labels/${id}`, { method: "PATCH", body });
+    const bg = label.color?.backgroundColor ?? "";
+    return { id: label.id, name: label.name, color: /^#[0-9a-f]{6}$/i.test(bg) ? bg : null };
+  }
+
+  async deleteLabel(id: string): Promise<void> {
+    if (!USER_LABEL_ID.test(id)) throw new Error("Only your own labels can be deleted");
+    await this.call(`/labels/${id}`, { method: "DELETE" });
   }
 
   async relabel(ids: string[], add: string[], remove: string[]): Promise<void> {

@@ -9,7 +9,7 @@
 import { AIMessage, HumanMessage, SystemMessage, ToolMessage, type BaseMessage } from "@langchain/core/messages";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import { z } from "zod";
-import { PART_ID, type AttachmentFile, type MailApi } from "./gmail.ts";
+import { LABEL_COLORS, MAX_OUTGOING_ATTACHMENT_BYTES, MAX_OUTGOING_ATTACHMENTS, PART_ID, type AttachmentFile, type MailApi } from "./gmail.ts";
 
 export type ActionKind = "send" | "trash";
 export interface SendPayload { draftId: string; to: string; subject: string; preview: string }
@@ -144,6 +144,16 @@ export const mailTools: ToolDef[] = [
     },
   }),
   define({
+    name: "edit_label",
+    description: `Rename or recolor one of the user's labels. Only when the user asks. Colors: ${Object.keys(LABEL_COLORS).join(", ")}, or "none". Deleting a label is done by the user in the app, not by this tool.`,
+    schema: z.object({ label: z.string().min(1).max(100), newName: z.string().min(1).max(100).optional(), color: z.string().max(7).optional() }),
+    async run({ label, newName, color }, { mail }) {
+      const [id] = await labelIds(mail, [label]);
+      const updated = await mail.updateLabel(id!, { ...(newName ? { name: newName } : {}), ...(color ? { color: color === "none" ? null : color } : {}) });
+      return { result: { name: updated.name, color: updated.color }, summary: `Updated label "${updated.name}"` };
+    },
+  }),
+  define({
     name: "organize_mail",
     description: "Sort messages: archive (remove from the inbox), move_to_inbox (bring an archived or spam message back), mark_read, mark_unread, star, unstar or mark_spam. Applied immediately; all of these can be undone.",
     schema: z.object({
@@ -157,23 +167,34 @@ export const mailTools: ToolDef[] = [
   }),
   define({
     name: "draft_email",
-    description: "Write an email and save it as a draft. It is NOT sent: the user gets a Send button and decides. To reply, pass replyToMessageId and leave `to` and `subject` empty to reuse the original sender and subject.",
+    description: "Write an email and save it as a draft. It is NOT sent: the user gets a Send button and decides. To reply, pass replyToMessageId and leave `to` and `subject` empty to reuse the original sender and subject. To include files from the mailbox (for example to forward a document), pass attachFrom with the messageId and partId that read_mail listed; only when the user asked for those files.",
     schema: z.object({
       to: z.string().max(500).optional().describe("Recipient address(es), comma separated"),
       subject: z.string().max(300).optional(),
       body: z.string().min(1).max(20_000).describe("The body, including greeting and sign-off"),
       replyToMessageId: messageId.optional(),
       formatted: z.boolean().optional().describe("true when the body uses **bold**, *italic*, - bullet lists, numbered lists or [text](https://link) and should be sent as formatted email"),
+      attachFrom: z.array(z.object({ messageId, partId: z.string().regex(PART_ID) })).max(MAX_OUTGOING_ATTACHMENTS).optional()
+        .describe("Files already in the mailbox to attach, by the messageId and partId from read_mail"),
     }),
-    async run({ to, subject, body, replyToMessageId, formatted }, { mail, queueAction }) {
+    async run({ to, subject, body, replyToMessageId, formatted, attachFrom }, { mail, queueAction }) {
       if (!replyToMessageId && (!to || !subject)) throw new Error("A new email needs both `to` and `subject`");
+      // Files are copied server side from the mailbox; the model never handles their bytes.
+      const attachments = [];
+      let total = 0;
+      for (const ref of attachFrom ?? []) {
+        const file = await mail.attachment(ref.messageId, ref.partId);
+        total += file.bytes.byteLength;
+        if (total > MAX_OUTGOING_ATTACHMENT_BYTES) throw new Error("Those files total more than 10 MB, the most one draft can carry. Attach fewer files.");
+        attachments.push({ filename: file.filename, mimeType: file.mimeType, data: Buffer.from(file.bytes).toString("base64") });
+      }
       // Reply recipients come from Gmail's original message, never a model's guess at an address.
-      const draft = await mail.createDraft({ to: replyToMessageId ? "" : to ?? "", subject: subject ?? "", body, replyToMessageId, format: formatted ? "markdown" : "plain" });
+      const draft = await mail.createDraft({ to: replyToMessageId ? "" : to ?? "", subject: subject ?? "", body, replyToMessageId, format: formatted ? "markdown" : "plain", ...(attachments.length ? { attachments } : {}) });
       await queueAction("send", `Send "${draft.subject}" to ${draft.to}`, {
         draftId: draft.draftId, to: draft.to, subject: draft.subject, preview: body.slice(0, 2000),
       });
       return {
-        result: { saved: "draft", to: draft.to, subject: draft.subject, sent: false, note: "Waiting for the user to approve sending." },
+        result: { saved: "draft", to: draft.to, subject: draft.subject, attached: attachments.map((file) => file.filename), sent: false, note: "Waiting for the user to approve sending." },
         summary: `Drafted "${draft.subject}" to ${draft.to}`, queued: true,
       };
     },

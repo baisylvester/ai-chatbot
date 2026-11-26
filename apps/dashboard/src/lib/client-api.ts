@@ -19,7 +19,7 @@ export function clientHeaders(request: Request) {
   return { ...corsHeaders(request.headers.get("origin")), "Access-Control-Expose-Headers": "X-Authenticated-User", "Cache-Control": "private, no-store", Vary: "Origin, Authorization, Cookie" };
 }
 export function clientPreflight(request: Request) {
-  return new Response(null, { status: 204, headers: { ...clientHeaders(request), "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS" } });
+  return new Response(null, { status: 204, headers: { ...clientHeaders(request), "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS" } });
 }
 
 /** A bearer token is a verified Supabase user token, NEVER an organization API key or widget token. */

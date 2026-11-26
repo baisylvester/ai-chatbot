@@ -154,3 +154,29 @@ export async function listPushEndpoints(db: DbClient, userId: string): Promise<s
   const { rows } = await db.query<{ endpoint: string }>("select endpoint from public.push_subscriptions where user_id = $1 order by created_at desc limit 10", [userId]);
   return rows.map((row) => row.endpoint);
 }
+
+/** Most pins kept per mailbox; pinning more drops nothing silently, it is refused. */
+export const MAX_PINS = 50;
+
+export async function listPins(db: DbClient, userId: string, mailbox: string): Promise<string[]> {
+  const { rows } = await db.query<{ message_id: string }>(
+    `select message_id from public.mail_pins where user_id = $1 and mailbox = $2 order by pinned_at desc limit ${MAX_PINS}`, [userId, mailbox.toLowerCase()]);
+  return rows.map((row) => row.message_id);
+}
+
+/** Returns false when the mailbox already has MAX_PINS pins. Pinning twice is a no-op. */
+export async function addPin(db: DbClient, userId: string, mailbox: string, messageId: string): Promise<boolean> {
+  const { rowCount } = await db.query(
+    `insert into public.mail_pins (user_id, mailbox, message_id)
+     select $1, $2, $3 where (select count(*) from public.mail_pins where user_id = $1 and mailbox = $2) < ${MAX_PINS}
+        or exists (select 1 from public.mail_pins where user_id = $1 and mailbox = $2 and message_id = $3)
+     on conflict do nothing`, [userId, mailbox.toLowerCase(), messageId]);
+  if (rowCount) return true;
+  const { rows } = await db.query(`select 1 from public.mail_pins where user_id = $1 and mailbox = $2 and message_id = $3`, [userId, mailbox.toLowerCase(), messageId]);
+  return rows.length > 0;
+}
+
+export async function removePins(db: DbClient, userId: string, mailbox: string, messageIds: string[]): Promise<void> {
+  if (!messageIds.length) return;
+  await db.query(`delete from public.mail_pins where user_id = $1 and mailbox = $2 and message_id = any($3::text[])`, [userId, mailbox.toLowerCase(), messageIds]);
+}

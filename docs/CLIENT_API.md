@@ -229,6 +229,20 @@ Added November 25, 2026. **Release prerequisite:** apply `packages/database/migr
 
 **Agent tools.** The mail agent adds `list_labels`, `label_mail` (by name; unknown names are reported, never created implicitly), `create_label`, `read_attachment` (document text, ≤ 8,000 characters) and `formatted` on `draft_email`.
 
+### Label editing, pins, contact suggestions and preferences
+
+| Method | Path | Notes |
+|---|---|---|
+| `PATCH` | `/mail/labels/{labelId}?chatbotId=…` | `{ name?, color? }`. Only user labels (`Label_…`); `color` must be one of Gmail's label colors (`LABEL_COLORS`) or `null`. 409 `label_exists` on a duplicate name. |
+| `DELETE` | `/mail/labels/{labelId}?chatbotId=…` | Deletes the label only; Gmail keeps its messages. The agent has no delete tool. |
+| `GET` | `/mail/pins?chatbotId=…` | `{ messages: MailSummary[] }`, newest pin first. Pins of messages Gmail no longer has are pruned (only when Gmail answered for some ids). |
+| `POST` | `/mail/pins?chatbotId=…` | `{ id }`. Idempotent; 409 `pin_limit` after 50 pins per mailbox. Pins are stored per user and mailbox address (`mail_pins`, ids only). |
+| `DELETE` | `/mail/pins/{messageId}?chatbotId=…` | Idempotent. |
+| `GET` | `/mail/contacts?chatbotId=…` | `{ contacts: { name, email }[] }`: people from up to 100 messages of the last year in Sent and Inbox, people the user wrote to weighted double, the user and no-reply senders left out. The client filters while typing. |
+| `GET` / `PUT` | `/preferences` | `{ theme: { palette, mode } | null }`, the user's synced color theme (`client_preferences`). |
+
+The agent's `draft_email` tool accepts `attachFrom: [{ messageId, partId }]`: files already in the mailbox are copied server side into the draft (10 files / 10 MB), and the draft still needs approval to send.
+
 ### Native push
 
 Not implemented. Existing new-mail notifications use browser Web Push (VAPID); there is no FCM sender or device-token storage. Native apps should refresh `/status` and `/actions` in the foreground.

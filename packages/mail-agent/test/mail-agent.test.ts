@@ -31,8 +31,12 @@ function fakeMail(): MailApi & { calls: string[] } {
     async createDraft(input) { calls.push(`draft:${input.to}`); return { draftId: "d1", to: input.to || "ana@example.com", subject: input.subject || "Re: Hello" }; },
     async organize(ids, action) { calls.push(`${action}:${ids.join(",")}`); },
     async labels() { calls.push("labels"); return [{ id: "Label_1", name: "Clients", color: null }]; },
+    async contacts() { calls.push("contacts"); return []; },
+    async pinnedSummaries(ids) { calls.push(`pinned:${ids.join(",")}`); return []; },
     async relabel(ids, add, remove) { calls.push(`relabel:${ids.join(",")}:+${add.join(",")}:-${remove.join(",")}`); },
     async createLabel(name) { calls.push(`label:${name}`); return { id: "Label_2", name, color: null }; },
+    async updateLabel(id, change) { calls.push(`edit:${id}:${change.name ?? ""}:${change.color ?? ""}`); return { id, name: change.name ?? "Clients", color: change.color ?? null }; },
+    async deleteLabel(id) { calls.push(`delete:${id}`); },
     async attachment(id, partId) { calls.push(`attachment:${id}:${partId}`); return { filename: "terms.pdf", mimeType: "application/pdf", bytes: new Uint8Array([1]) }; },
   };
 }
@@ -163,8 +167,8 @@ describe("agent", () => {
     expect(queueAction).toHaveBeenCalledWith("send", expect.stringContaining("ana@example.com"), expect.objectContaining({ draftId: "d1", preview: "Thank you!" }));
     expect(queueAction).toHaveBeenCalledWith("trash", expect.stringContaining("2 messages"), { ids: ["m2", "m3"] });
     // The mailbox interface the agent holds has no way to send or delete at all.
-    expect(Object.keys(box).sort()).toEqual(["attachment", "calls", "createDraft", "createLabel", "labels", "organize", "read", "relabel", "search"]);
-    expect(mailTools.map((tool) => tool.name).sort()).toEqual(["create_label", "draft_email", "label_mail", "list_labels", "organize_mail", "read_attachment", "read_mail", "request_trash", "search_mail"]);
+    expect(Object.keys(box).sort()).toEqual(["attachment", "calls", "contacts", "createDraft", "createLabel", "deleteLabel", "labels", "organize", "pinnedSummaries", "read", "relabel", "search", "updateLabel"]);
+    expect(mailTools.map((tool) => tool.name).sort()).toEqual(["create_label", "draft_email", "edit_label", "label_mail", "list_labels", "organize_mail", "read_attachment", "read_mail", "request_trash", "search_mail"]);
   });
 
   it("reports bad arguments and unknown tools back to the model, and stops after maxSteps", async () => {

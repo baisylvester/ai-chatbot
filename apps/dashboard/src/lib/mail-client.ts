@@ -8,6 +8,7 @@ import {
 } from "@chatbot/mail-agent";
 import { clientBot, clientError, withClientRequest } from "@/lib/client-api";
 import { agentModel, attachmentPlainText, mailDb, openMailbox } from "@/lib/mail-agent";
+import { addPin, listPins, removePins } from "@chatbot/mail-agent";
 import { mailRole } from "@/lib/native-mail";
 import { sharedKnowledgeChatbot } from "@/lib/native-knowledge";
 import { retrieverFor } from "@/lib/knowledge";
@@ -44,6 +45,10 @@ const relabelSchema = z.object({
   remove: z.array(z.string().regex(USER_LABEL_ID)).max(10).default([]),
 }).strict();
 const createLabelSchema = z.object({ name: z.string().trim().min(1).max(100) }).strict();
+const updateLabelSchema = z.object({
+  name: z.string().trim().min(1).max(100).optional(),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable().optional(),
+}).strict().refine(v => v.name !== undefined || v.color !== undefined);
 /** Largest draft request accepted: 10 MB of files as base64 plus the text. */
 const MAX_DRAFT_REQUEST_BYTES = 15 * 1024 * 1024;
 export const writingSchema = z.object({
@@ -86,6 +91,65 @@ export function createMailLabel(request: Request) {
       if (err instanceof Error && !(err instanceof GmailHttpError) && /label name|reserved/i.test(err.message)) return clientError(400, "invalid", err.message);
       throw err;
     }
+  });
+}
+function labelError(err: unknown) {
+  if (err instanceof GmailHttpError && err.status === 404) return clientError(404, "not_found", "This label no longer exists.");
+  if (err instanceof GmailHttpError && err.status === 409) return clientError(409, "conflict", "A label with this name already exists.", "label_exists");
+  if (err instanceof Error && !(err instanceof GmailHttpError) && /label|reserved|color|Nothing/i.test(err.message)) return clientError(400, "invalid", err.message);
+  throw err;
+}
+export function updateMailLabel(request: Request, labelId: string) {
+  return withClientRequest(request, async user => {
+    const input = updateLabelSchema.safeParse(await request.json().catch(() => null));
+    if (!input.success || !USER_LABEL_ID.test(labelId)) return clientError(400, "invalid", "Enter a new name or choose a color.");
+    const { gmail } = await authorizedMailbox(request, user.id);
+    try { return Response.json(await gmail.updateLabel(labelId, input.data)); } catch (err) { return labelError(err); }
+  });
+}
+/** Removes the label only; Gmail keeps every message that carried it. */
+export function deleteMailLabel(request: Request, labelId: string) {
+  return withClientRequest(request, async user => {
+    if (!USER_LABEL_ID.test(labelId)) return clientError(404, "not_found", "This label no longer exists.");
+    const { gmail } = await authorizedMailbox(request, user.id);
+    try { await gmail.deleteLabel(labelId); return Response.json({ ok: true }); } catch (err) { return labelError(err); }
+  });
+}
+/** People from the user's recent mail, for the composer's address suggestions (filtered on the phone). */
+export function suggestContacts(request: Request) {
+  return withClientRequest(request, async user => {
+    const { gmail, connection } = await authorizedMailbox(request, user.id);
+    return Response.json({ contacts: await gmail.contacts(connection.email) });
+  });
+}
+/** Pinned messages, newest pin first. Pins of deleted messages are dropped when Gmail confirms they are gone. */
+export function listPinned(request: Request) {
+  return withClientRequest(request, async user => {
+    const { gmail, connection } = await authorizedMailbox(request, user.id);
+    const ids = await mailDb(db => listPins(db, user.id, connection.email));
+    const messages = await gmail.pinnedSummaries(ids);
+    const missing = ids.filter(id => !messages.some(m => m.id === id));
+    // Only prune when Gmail answered for some ids, so a rate-limited batch never erases pins.
+    if (missing.length && messages.length) await mailDb(db => removePins(db, user.id, connection.email, missing));
+    return Response.json({ messages });
+  });
+}
+const pinSchema = z.object({ id: idSchema }).strict();
+export function pinMessage(request: Request) {
+  return withClientRequest(request, async user => {
+    const input = pinSchema.safeParse(await request.json().catch(() => null));
+    if (!input.success) return clientError(400, "invalid", "Choose a message to pin.");
+    const { connection } = await authorizedMailbox(request, user.id);
+    if (!await mailDb(db => addPin(db, user.id, connection.email, input.data.id))) return clientError(409, "conflict", "You can pin up to 50 emails. Unpin one first.", "pin_limit");
+    return Response.json({ ok: true });
+  });
+}
+export function unpinMessage(request: Request, messageId: string) {
+  return withClientRequest(request, async user => {
+    if (!idSchema.safeParse(messageId).success) return clientError(404, "not_found", "Message not found.");
+    const { connection } = await authorizedMailbox(request, user.id);
+    await mailDb(db => removePins(db, user.id, connection.email, [messageId]));
+    return Response.json({ ok: true });
   });
 }
 /** Adding or removing a user label is reversible, so it applies immediately (like archive). */
@@ -139,7 +203,7 @@ export function attachmentText(request: Request, messageId: string, partId: stri
     let text: string | null;
     try { text = await attachmentPlainText(file); }
     catch (err) { return clientError(422, "invalid", err instanceof AttachmentReadError ? err.message : "This document could not be read. Open it instead.", "attachment_unreadable"); }
-    if (text === null) return clientError(415, "invalid", "Only PDF, Word (.docx), text, Markdown, HTML and image attachments can be read.", "attachment_unsupported");
+    if (text === null) return clientError(415, "invalid", "The server cannot read this file type. The app reads Excel, PowerPoint and older Word files on the phone.", "attachment_unsupported");
     return Response.json({ filename: file.filename, text: text.slice(0, MAX_ATTACHMENT_TEXT_CHARS), truncated: text.length > MAX_ATTACHMENT_TEXT_CHARS });
   });
 }

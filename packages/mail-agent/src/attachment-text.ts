@@ -30,7 +30,7 @@ const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/hei
 export function attachmentKind(filename: string, mimeType: string): Kind | null {
   const ext = filename.toLowerCase().match(/\.([a-z0-9]{1,8})$/)?.[1] ?? "";
   const type = mimeType.toLowerCase();
-  if (["txt", "text", "md", "markdown", "csv", "log"].includes(ext) || type === "text/plain" || type === "text/markdown" || type === "text/csv") return "text";
+  if (["txt", "text", "md", "markdown", "csv", "tsv", "log"].includes(ext) || type === "text/plain" || type === "text/markdown" || type === "text/csv" || type === "text/tab-separated-values") return "text";
   if (["html", "htm"].includes(ext) || type === "text/html") return "html";
   if (ext === "docx" || type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") return "docx";
   if (ext === "pdf" || type === "application/pdf") return "pdf";
